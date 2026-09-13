@@ -1,0 +1,16 @@
+# Personal data — never committed. Only the *.example.yaml templates are public.
+config/profile.yaml
+config/preferences.yaml
+
+# Runtime state (seen-role hashes, queue, drafted packages)
+state/*
+!state/.gitkeep
+
+# Drafted application packages (contain tailored resumes + personal answers)
+applications/
+
+# OS / editor
+.DS_Store
+*.pyc
+__pycache__/
+.venv/

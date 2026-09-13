@@ -1,0 +1,2 @@
+# Runtime state lives here (seen.json, queue.jsonl, patterns.md, question-tally.json).
+# All gitignored except this file.

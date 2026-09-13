@@ -19,7 +19,13 @@ locations:
   accept_canada: true
 drop_if_role_contains: ["🎓", "PhD", "Master", "Grad", "New Grad", "Full-time"]
 
+# Drop any role whose title carries these terms (e.g. a hard no on defense/clearance work).
+exclude_role_keywords: ["defense", "itar", "clearance", "classified", "top secret", " ctj"]
+# Companies to hard-exclude by category (e.g. defense). Extend as new ones appear.
+defense_companies: []
+
 exclude_companies: []       # never surface these
+already_applied: []         # companies already applied to — skipped in scans
 
 scoring_config: "config/scoring.yaml"
 report:

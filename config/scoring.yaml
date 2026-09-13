@@ -18,6 +18,7 @@ thresholds:
 # Hard gates: if ANY is true, the role is flagged INELIGIBLE and the score is void.
 # No package is built. Mirrors the eligibility gate in the resume-tailoring spec.
 hard_gates:
+  - "Defense or defense-adjacent company or role (hard no) — see preferences defense_companies / exclude_role_keywords"
   - "JD requires US citizenship / US person / green card (ITAR, clearance-in-practice)"
   - "Role is grad-only / new-grad full-time / not an internship"
   - "Term is not the target term (see preferences.target_term)"

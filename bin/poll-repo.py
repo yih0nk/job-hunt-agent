@@ -103,10 +103,22 @@ def role_type_match(role, role_types):
     return False
 
 def matches(row, prefs):
+    company_l = row["company"].lower()
+    role_l = row["role"].lower()
     loc = row["location"].lower()
     for bad in prefs.get("drop_if_role_contains", []):
-        if bad.lower() in row["role"].lower() or bad in row["role"]:
+        if bad.lower() in role_l or bad in row["role"]:
             return False
+    # Hard no: defense / clearance keywords anywhere in the role title.
+    for kw in prefs.get("exclude_role_keywords", []):
+        if kw.lower() in role_l:
+            return False
+    # Hard no: excluded companies (incl. defense) and companies already applied to.
+    excluded = [c.lower() for c in prefs.get("exclude_companies", [])]
+    excluded += [c.lower() for c in prefs.get("defense_companies", [])]
+    excluded += [c.lower() for c in prefs.get("already_applied", [])]
+    if company_l in excluded:
+        return False
     if not role_type_match(row["role"], prefs.get("role_types", [])):
         return False
     accept = [a.lower() for a in prefs["locations"].get("accept", [])]
@@ -114,8 +126,6 @@ def matches(row, prefs):
     if prefs["locations"].get("accept_metros") and ("," in loc or "hybrid" in loc):
         loc_ok = True  # let the Matcher's eligibility gate make the final call
     if not loc_ok:
-        return False
-    if row["company"].lower() in [c.lower() for c in prefs.get("exclude_companies", [])]:
         return False
     return True
 

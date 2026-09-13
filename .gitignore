@@ -1,6 +1,7 @@
 # Personal data — never committed. Only the *.example.yaml templates are public.
 config/profile.yaml
 config/preferences.yaml
+config/learned-answers.yaml
 
 # Runtime state (seen-role hashes, queue, drafted packages)
 state/*

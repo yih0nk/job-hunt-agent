@@ -34,6 +34,9 @@ Recruiting — <date>
 ## Modes
 - `/recruit` — full run + report.
 - `/recruit scan` — Scout + Matcher only (no drafting).
+- `/recruit scan past day|week|N days` — time-windowed scan via the listing Age column
+  (`poll-repo.py --max-age-days N --ignore-seen`), then score. Use for ad-hoc "what's new
+  in the last day" requests.
 - `/recruit apply <company>` — draft a package for one specific queued role.
 
 ## Invariants

@@ -62,11 +62,33 @@ def parse_table(md):
         company, _ = cell_parts(cells[0])
         role_text, role_url = cell_parts(cells[1])
         location, _ = cell_parts(cells[2])
+        age_raw, _ = cell_parts(cells[3]) if len(cells) > 3 else ("", "")
         if not (company and role_text):
             continue
-        rows.append({"company": company, "role": role_text,
-                     "url": role_url, "location": location})
+        rows.append({"company": company, "role": role_text, "url": role_url,
+                     "location": location, "age": age_raw,
+                     "age_days": age_to_days(age_raw)})
     return rows
+
+def age_to_days(s):
+    """Parse the listing 'Age' cell ('0d','3d','2w','1mo','1h','1y') to days. None if unknown."""
+    if not s:
+        return None
+    m = re.match(r"\s*(\d+)\s*(h|hr|hrs|hour|hours|d|day|days|w|wk|week|weeks|mo|mon|month|months|y|yr|year|years)?",
+                 s.strip().lower())
+    if not m:
+        return None
+    n = int(m.group(1))
+    unit = (m.group(2) or "d")[0:2]
+    if unit.startswith("h"):
+        return n / 24.0
+    if unit.startswith("w"):
+        return n * 7
+    if unit == "mo" or unit.startswith("mo"):
+        return n * 30
+    if unit.startswith("y"):
+        return n * 365
+    return float(n)  # days
 
 def role_type_match(role, role_types):
     """Short tokens (<=3 chars: ai/ml/swe) need a full-word match so they don't hit
@@ -104,6 +126,11 @@ def row_hash(row):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default="config/preferences.yaml")
+    ap.add_argument("--max-age-days", type=float, default=None,
+                    help="Only roles posted within this many days (e.g. 1 = past day, 7 = past week).")
+    ap.add_argument("--ignore-seen", action="store_true",
+                    help="Query mode: don't dedup against seen.json and don't record results. "
+                         "Use for ad-hoc 'scan the past day' queries.")
     args = ap.parse_args()
     prefs = load_yaml(ROOT / args.config)
 
@@ -111,29 +138,36 @@ def main():
     seen_path = STATE / "seen.json"
     seen = set(json.loads(seen_path.read_text())) if seen_path.exists() else set()
 
-    new_rows, scanned, passed = [], 0, 0
+    new_rows, scanned, passed, aged_out = [], 0, 0, 0
     for src in prefs["sources"].get("github_repos", []):
         md = fetch(src["repo"], src.get("branch", "main"), src.get("file", "README.md"))
         for row in parse_table(md):
             scanned += 1
             if not matches(row, prefs):
                 continue
+            if args.max_age_days is not None:
+                # Unknown age is excluded from an explicit time window.
+                if row["age_days"] is None or row["age_days"] > args.max_age_days:
+                    aged_out += 1
+                    continue
             passed += 1
             h = row_hash(row)
-            if h in seen:
+            if not args.ignore_seen and h in seen:
                 continue
             row["hash"] = h
             row["source"] = src["repo"]
             new_rows.append(row)
             seen.add(h)
 
-    seen_path.write_text(json.dumps(sorted(seen)))
-    with open(STATE / "queue.jsonl", "a") as f:
-        for row in new_rows:
-            f.write(json.dumps(row) + "\n")
+    if not args.ignore_seen:
+        seen_path.write_text(json.dumps(sorted(seen)))
+        with open(STATE / "queue.jsonl", "a") as f:
+            for row in new_rows:
+                f.write(json.dumps(row) + "\n")
 
     print(json.dumps({"scanned": scanned, "passed_filters": passed,
-                      "new": len(new_rows),
+                      "aged_out": aged_out, "new": len(new_rows),
+                      "max_age_days": args.max_age_days,
                       "new_rows": new_rows}, indent=2))
 
 if __name__ == "__main__":

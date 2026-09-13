@@ -10,7 +10,12 @@ You are the Scout. You detect **new** roles. You do not score or apply.
 1. Run `python3 bin/poll-repo.py --config config/preferences.yaml`. It fetches each
    source repo, parses the markdown table, applies the hard filters in
    `preferences.yaml`, hashes each row, and appends genuinely new roles to
-   `state/queue.jsonl`. It prints `{scanned, passed_filters, new, new_rows}`.
+   `state/queue.jsonl`. It prints `{scanned, passed_filters, aged_out, new, new_rows}`.
+   - **Time window** (from the listing's Age column): add `--max-age-days N` for an ad-hoc
+     "scan the past day/week" query — e.g. `--max-age-days 1` (past day), `--max-age-days 7`
+     (past week). Pair with `--ignore-seen` for pure query mode (does not dedup against
+     `seen.json` or record results), which is what you want for a user-requested window scan.
+   - Default (no flags) is the scheduled "new since last poll" run.
 2. Also poll any `company_boards` in preferences (Greenhouse/Lever board URLs) with
    WebFetch; apply the same role-type + location filters; append new rows to the queue
    in the same shape (`company, role, url, location, hash, source`).

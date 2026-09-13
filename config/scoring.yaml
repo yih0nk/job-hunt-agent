@@ -1,0 +1,24 @@
+# Fit-scoring rubric. The Matcher agent fills each component in by reading the JD
+# against the candidate profile. Every score returns its sub-scores + a one-line why.
+# Edit the weights to change how roles are ranked. Weights should sum to 100.
+
+weights:
+  role_type: 30      # SWE / AI-eng / ML / backend / fullstack match. Exact=full, adjacent=partial.
+  tech_overlap: 25   # Share of the JD's named stack the candidate actually has.
+  eligibility: 20    # Internship (not grad/new-grad-FT), term timing, location, sponsorship workable.
+  level_fit: 15      # Undergrad-appropriate; matches year in school / grad date.
+  domain: 10         # Bonus for the candidate's genuine strengths + preferred company types.
+
+# What the number does. Tune after the first real run.
+thresholds:
+  auto_draft: 70     # >= this  -> Applier drafts a full package for review.
+  review: 55         # 55..69   -> listed in the daily report as "review manually".
+                     # < 55     -> dropped (still logged in state, not surfaced).
+
+# Hard gates: if ANY is true, the role is flagged INELIGIBLE and the score is void.
+# No package is built. Mirrors the eligibility gate in the resume-tailoring spec.
+hard_gates:
+  - "JD requires US citizenship / US person / green card (ITAR, clearance-in-practice)"
+  - "Role is grad-only / new-grad full-time / not an internship"
+  - "Term is not the target term (see preferences.target_term)"
+  - "Location is not remote and not in an acceptable metro (see preferences.locations)"

@@ -1,0 +1,26 @@
+# Copy to config/preferences.yaml (gitignored). Hard filters + targeting. Public template.
+
+sources:
+  # GitHub listing repos to poll (owner/repo + branch + the markdown file with the table).
+  github_repos:
+    - repo: "owner/repo"
+      branch: "main"
+      file: "README.md"
+  # Optional: specific company ATS boards to poll directly (Greenhouse/Lever board URLs).
+  company_boards: []
+
+# Hard filters — applied by the Scout before anything is scored.
+role_types: ["swe", "ai", "ml", "backend", "fullstack"]  # keyword-matched against role title
+term: "internship"          # internship | newgrad | both
+target_term: "Summer 2027"  # human label; used in the eligibility gate
+locations:
+  accept: ["SF", "San Francisco", "NYC", "New York", "remote"]
+  accept_metros: true       # also accept other major metros
+  accept_canada: true
+drop_if_role_contains: ["🎓", "PhD", "Master", "Grad", "New Grad", "Full-time"]
+
+exclude_companies: []       # never surface these
+
+scoring_config: "config/scoring.yaml"
+report:
+  schedule: "daily 08:00"   # aligns with the existing morning inbox sweep

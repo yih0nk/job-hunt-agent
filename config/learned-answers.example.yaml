@@ -1,0 +1,11 @@
+# Copy to config/learned-answers.yaml (gitignored). Grows over time.
+# The Applier checks here FIRST before asking you anything. When a new question recurs
+# across applications, the agent surfaces it once; on your approval it is appended here
+# so you are never asked again. Keys are normalized question text.
+
+answers:
+  "are you legally authorized to work in the united states": "Yes"
+  "will you now or in the future require sponsorship": "See profile.work_authorization.sponsorship_note"
+  "how did you hear about us": "Company website"
+  "are you willing to relocate": "Yes"
+  # ... accumulates as patterns emerge.

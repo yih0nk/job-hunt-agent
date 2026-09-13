@@ -1,0 +1,59 @@
+# Copy to config/profile.yaml (gitignored) and fill in. This file is the public template.
+# The Applier reads profile.yaml to fill application forms up to the submit button.
+
+identity:
+  legal_name: "First Last"
+  preferred_name: "First"
+  email: "you@example.edu"
+  phone: "0000000000"
+  city: "City, ST"
+  links:
+    linkedin: "https://linkedin.com/in/you"
+    github: "https://github.com/you"
+    website: "https://you.dev"
+    x: ""
+
+work_authorization:
+  citizenship: "Canada"
+  status: "F-1 student on CPT"
+  authorized_us: true
+  # Default answer to "do you require sponsorship?". Conditional handling below.
+  requires_sponsorship_default: "No"
+  sponsorship_note: >
+    Answer "No" by default (CPT is not employer sponsorship). BUT answer "Yes" if the
+    form explicitly says F-1/CPT must answer yes, or that a TN does not count as
+    already-authorized. Surface the exact wording at the review gate when unsure.
+
+education:
+  school: "University Name"
+  degree: "B.S. in Major"
+  grad_date: "5/11/2028"
+  gpa: "3.76"
+  include_gpa: true
+
+eeo_self_id:
+  gender: "Decline to self-identify"       # but see gender_note
+  gender_note: "Select male only if the form offers 'transgender' / 'transgender male' framing; otherwise decline."
+  race_ethnicity: "East Asian"
+  veteran: "No"
+  disability: "No"
+
+logistics:
+  earliest_start: "2027-05-14"
+  salary: "leave blank; if required, use the range on the JD"
+
+# Account creation is NEVER automated. When a portal needs an account, the agent pauses
+# and hands off to you. These are the values YOU use when you create it manually.
+account_handoff:
+  signup_email: "you@example.edu"
+  password_policy: "Use the browser's suggested strong password and save it."
+  verification: "Agent may read the code from your connected email and surface it; you complete signup."
+
+resume:
+  work_dir: "~/Documents/Work"                      # base + per-category variants
+  tailoring_spec: "~/Downloads/RESUME-TAILORING.md" # the standing tailoring workflow
+  # The Applier delegates all resume tailoring to the spec above. It does not reinvent it.
+
+free_text:
+  voice: "Concise. No em dashes. Avoid common AI-tell phrasing. Draw on real experience only."
+  tracker: "~/path/to/applications-tracker.md"

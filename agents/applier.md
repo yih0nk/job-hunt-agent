@@ -15,6 +15,11 @@ clicks submit — always.
 2. **Tailor the resume.** Delegate entirely to the tailoring spec at
    `profile.resume.tailoring_spec` using the Matcher's `resume_category`. Do not invent
    your own tailoring logic. Output is the category's one-page PDF.
+   - **Vault investigation is authorized and expected.** Before tailoring, read across the
+     candidate's ENTIRE vault bench at `profile.resume.bench` (wiki/my-work) and ALL its
+     subfolders — projects, experience, career, content, todo — to find the strongest
+     real evidence for this JD. Do not tailor only from what is already on the base resume.
+     Read-only: never modify vault files while investigating.
 3. **Draft free-text answers** ("why this company", "why you", etc.) in the candidate's
    voice from `profile.free_text` — concise, no em dashes, no AI-tell phrasing, real
    experience only. Draw specifics from the bench.

@@ -90,6 +90,37 @@ def age_to_days(s):
         return n * 365
     return float(n)  # days
 
+def _strip_tags(s):
+    import html as _html
+    return _html.unescape(re.sub(r"<[^>]+>", "", s)).strip()
+
+def parse_html_table(html_text):
+    """Parse an HTML <table> listing (e.g. SimplifyJobs). Columns:
+    Company | Role | Location | Application | Age. The Application cell's first
+    non-simplify.jobs href is the real ATS URL, so no redirect resolution is needed.
+    '↳' in the company cell means 'same company as the row above'."""
+    rows, prev_company = [], ""
+    for tr in re.findall(r"<tr>(.*?)</tr>", html_text, re.DOTALL):
+        tds = re.findall(r"<td[^>]*>(.*?)</td>", tr, re.DOTALL)
+        if len(tds) < 4:
+            continue
+        company = _strip_tags(tds[0])
+        if company in ("", "↳") or "8618" in company:
+            company = prev_company
+        else:
+            prev_company = company
+        role = _strip_tags(tds[1])
+        location = _strip_tags(tds[2])
+        hrefs = re.findall(r'href="([^"]+)"', tds[3])
+        url = next((h for h in hrefs if "simplify.jobs" not in h), hrefs[0] if hrefs else "")
+        age_raw = _strip_tags(tds[4]) if len(tds) > 4 else ""
+        if not (company and role):
+            continue
+        rows.append({"company": company, "role": role, "url": url,
+                     "location": location, "age": age_raw,
+                     "age_days": age_to_days(age_raw)})
+    return rows
+
 def role_type_match(role, role_types):
     """Short tokens (<=3 chars: ai/ml/swe) need a full-word match so they don't hit
     'maintenance'/'html'. Longer tokens prefix-match so 'software engineer' also catches
@@ -151,7 +182,10 @@ def main():
     new_rows, scanned, passed, aged_out = [], 0, 0, 0
     for src in prefs["sources"].get("github_repos", []):
         md = fetch(src["repo"], src.get("branch", "main"), src.get("file", "README.md"))
-        for row in parse_table(md):
+        rows = parse_table(md)
+        if not rows and "<td" in md:      # HTML-table repos (e.g. SimplifyJobs)
+            rows = parse_html_table(md)
+        for row in rows:
             scanned += 1
             if not matches(row, prefs):
                 continue

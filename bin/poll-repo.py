@@ -164,6 +164,62 @@ def row_hash(row):
     key = f"{row['company']}|{row['role']}|{row['location']}".lower()
     return hashlib.sha1(key.encode()).hexdigest()[:16]
 
+# --- Tracker dedup: skip positions already in the applications tracker -------------
+ROLE_STOP = {"intern", "internship", "summer", "winter", "fall", "spring", "co", "op",
+             "coop", "2025", "2026", "2027", "2028", "the", "a", "an", "and", "of", "for",
+             "software", "engineer", "engineering", "swe", "start", "undergraduate"}
+
+def _norm_company(c):
+    c = re.sub(r"\(.*?\)", "", c)                 # drop parentheticals
+    return re.sub(r"[^a-z0-9]", "", c.lower())
+
+def _norm_role(r):
+    # Keep parenthetical team tags (e.g. "(AML-Ark)") — they distinguish roles at one company.
+    toks = re.split(r"[^a-z0-9]+", r.lower())
+    return {t for t in toks if t and not t.isdigit() and t not in ROLE_STOP}
+
+def load_applied(tracker_path):
+    """Parse the markdown tracker into a list of (company_norm, role_tokens)."""
+    applied = []
+    p = os.path.expanduser(tracker_path)
+    if not os.path.exists(p):
+        return applied
+    with open(p) as f:
+        for line in f:
+            line = line.strip()
+            if not line.startswith("|"):
+                continue
+            cells = [c.strip() for c in line.strip("|").split("|")]
+            if len(cells) < 2 or cells[0].lower() == "company":
+                continue
+            if all(set(c) <= set("-: ") for c in cells):
+                continue
+            company = re.sub(r"^[—\-\s]+", "", cells[0])   # strip leading em-dash markers
+            cn = _norm_company(company)
+            if cn:
+                applied.append((cn, _norm_role(cells[1])))
+    return applied
+
+def is_tracked(row, applied):
+    cn, rt = _norm_company(row["company"]), _norm_role(row["role"])
+    for tc, tr in applied:
+        if tc != cn:
+            continue
+        if rt == tr:
+            return True
+        if not rt and not tr:        # both generic (e.g. plain "SWE Intern") at same company
+            return True
+        if not rt or not tr:         # one generic, one specific -> different positions
+            continue
+        inter = len(rt & tr)
+        # Overlap coefficient handles verbose vs abbreviated titles (MLE vs Machine Learning
+        # Engineer); require >=2 shared distinctive tokens to avoid single-word false hits.
+        if inter >= 2 and inter / min(len(rt), len(tr)) >= 0.6:
+            return True
+        if inter / (len(rt | tr)) >= 0.5:   # plain Jaccard as a second net
+            return True
+    return False
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default="config/preferences.yaml")
@@ -179,7 +235,11 @@ def main():
     seen_path = STATE / "seen.json"
     seen = set(json.loads(seen_path.read_text())) if seen_path.exists() else set()
 
-    new_rows, scanned, passed, aged_out = [], 0, 0, 0
+    # Tracker is the source of truth for already-applied / already-drafted positions
+    # (covers manual applications and the inbox sweep). Filter them out at scan time.
+    applied = load_applied(prefs["tracker_path"]) if prefs.get("tracker_path") else []
+
+    new_rows, scanned, passed, aged_out, tracked = [], 0, 0, 0, 0
     for src in prefs["sources"].get("github_repos", []):
         md = fetch(src["repo"], src.get("branch", "main"), src.get("file", "README.md"))
         rows = parse_table(md)
@@ -188,6 +248,9 @@ def main():
         for row in rows:
             scanned += 1
             if not matches(row, prefs):
+                continue
+            if applied and is_tracked(row, applied):
+                tracked += 1
                 continue
             if args.max_age_days is not None:
                 # Unknown age is excluded from an explicit time window.
@@ -210,8 +273,8 @@ def main():
                 f.write(json.dumps(row) + "\n")
 
     print(json.dumps({"scanned": scanned, "passed_filters": passed,
-                      "aged_out": aged_out, "new": len(new_rows),
-                      "max_age_days": args.max_age_days,
+                      "already_tracked": tracked, "aged_out": aged_out,
+                      "new": len(new_rows), "max_age_days": args.max_age_days,
                       "new_rows": new_rows}, indent=2))
 
 if __name__ == "__main__":

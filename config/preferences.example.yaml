@@ -27,6 +27,10 @@ defense_companies: []
 exclude_companies: []       # never surface these
 already_applied: []         # companies already applied to — skipped in scans
 
+# Applications tracker — source of truth for already-applied/drafted positions.
+# Scanner skips any position already listed here (covers manual applies + your inbox sweep).
+tracker_path: "~/path/to/applications-tracker.md"
+
 scoring_config: "config/scoring.yaml"
 report:
   schedule: "daily 08:00"   # aligns with the existing morning inbox sweep

@@ -8,6 +8,14 @@ sources:
       file: "README.md"
   # Optional: specific company ATS boards to poll directly (Greenhouse/Lever board URLs).
   company_boards: []
+  # Optional: web listing pages parsed from their public HTML (e.g. Early Career Radar).
+  # accept_tracks uses the source's own role classification instead of the title regex;
+  # accept_hubs limits to named regions. Only the public page is fetched, never an API.
+  web_sources:
+    - name: "early-career-radar"
+      url: "https://www.earlycareerradar.com/jobs"
+      accept_tracks: ["SWE", "ML & AI"]
+      accept_hubs: []
 
 # Hard filters — applied by the Scout before anything is scored.
 role_types: ["swe", "ai", "ml", "backend", "fullstack"]  # keyword-matched against role title
@@ -27,9 +35,10 @@ defense_companies: []
 exclude_companies: []       # never surface these
 already_applied: []         # companies already applied to — skipped in scans
 
-# Applications tracker — source of truth for already-applied/drafted positions.
-# Scanner skips any position already listed here (covers manual applies + your inbox sweep).
-tracker_path: "~/path/to/applications-tracker.md"
+# Trackers — source of truth for already-applied/drafted positions. Both are read for
+# dedup so a position is never surfaced, re-drafted, or re-contacted twice.
+tracker_path: "~/path/to/submitted-applications.md"          # authoritative: actually submitted
+packages_tracker_path: "~/path/to/tailored-packages.md"      # tailored packages (may be unsubmitted)
 
 scoring_config: "config/scoring.yaml"
 report:

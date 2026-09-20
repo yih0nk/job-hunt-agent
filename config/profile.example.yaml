@@ -50,10 +50,14 @@ account_handoff:
   verification: "Agent may read the code from your connected email and surface it; you complete signup."
 
 resume:
-  work_dir: "~/Documents/Work"                      # base + per-category variants
+  work_dir: "~/path/to/resumes"                     # base + per-category variant folders
   tailoring_spec: "~/Downloads/RESUME-TAILORING.md" # the standing tailoring workflow
   # The Applier delegates all resume tailoring to the spec above. It does not reinvent it.
 
 free_text:
   voice: "Concise. No em dashes. Avoid common AI-tell phrasing. Draw on real experience only."
-  tracker: "~/path/to/applications-tracker.md"
+  # AUTHORITATIVE tracker: what has actually been submitted (e.g. built from inbox confirmations).
+  tracker: "~/path/to/submitted-applications.md"
+  # Packages tracker: tailored resume packages drafted (may not be submitted yet). Both are
+  # checked for dedup so you never re-draft or re-contact a position twice.
+  packages_tracker: "~/path/to/tailored-packages.md"

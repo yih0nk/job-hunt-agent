@@ -10,7 +10,7 @@ Usage:
     python3 bin/poll-repo.py --config config/preferences.yaml
 Stdlib HTTP only; needs PyYAML for config parsing.
 """
-import argparse, hashlib, json, os, re, ssl, sys, urllib.request
+import argparse, datetime as dt, hashlib, json, os, re, ssl, sys, urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -133,6 +133,25 @@ def role_type_match(role, role_types):
             return True
     return False
 
+def loc_match(loc, accept):
+    """Long tokens ("San Francisco", "remote") match case-insensitively anywhere.
+
+    Short tokens ("SF", "LA", "NYC") are matched CASE-SENSITIVELY and must not be
+    followed by a lowercase letter. The feeds emit run-together multi-city cells
+    ("SFNYC", "SFLA", "LATorrance, CA") where the abbreviation keeps its capitals,
+    so this accepts those while rejecting "Lakewood", "Laramie", "Salt Lake City"
+    and the rest of the La-city family that a plain substring match would admit.
+    """
+    loc_l = loc.lower()
+    for a in accept:
+        a = a.strip()
+        if len(a) > 3:
+            if a.lower() in loc_l:
+                return True
+        elif re.search(r"\b" + re.escape(a.upper()) + r"(?![a-z])", loc):
+            return True
+    return False
+
 def matches(row, prefs):
     company_l = row["company"].lower()
     role_l = row["role"].lower()
@@ -150,15 +169,81 @@ def matches(row, prefs):
     excluded += [c.lower() for c in prefs.get("already_applied", [])]
     if company_l in excluded:
         return False
-    if not role_type_match(row["role"], prefs.get("role_types", [])):
+    # A source that pre-classifies roles (Early Career Radar `track`) may bypass
+    # the title regex; everything else in this function still applies.
+    if not row.get("_track_ok") and not role_type_match(row["role"], prefs.get("role_types", [])):
         return False
-    accept = [a.lower() for a in prefs["locations"].get("accept", [])]
-    loc_ok = any(a in loc for a in accept)
-    if prefs["locations"].get("accept_metros") and ("," in loc or "hybrid" in loc):
+    accept = prefs["locations"].get("accept", [])
+    loc_ok = loc_match(row["location"], accept)   # original casing: see loc_match docstring
+    # accept_metros is a deliberately loose net for the GitHub feeds, whose location
+    # cells are often terse. It does NOT apply to sources that ship a real structured
+    # location (_strict_loc): there a comma is the norm, not a signal, and the
+    # shortcut would admit every city in the country.
+    if (not row.get("_strict_loc")) and prefs["locations"].get("accept_metros") \
+            and ("," in loc or "hybrid" in loc):
         loc_ok = True  # let the Matcher's eligibility gate make the final call
     if not loc_ok:
         return False
     return True
+
+# --- Early Career Radar (earlycareerradar.com) -------------------------------
+# Jobs are embedded in the Next.js flight payload of the public listings page.
+# robots.txt allows "/" and disallows "/api/", so we parse the public page and
+# never call the API. Each object carries company/title/location/applyUrl plus
+# postedAt, a pre-classified `track`, and a `hub` region.
+ECR_JOB = re.compile(r'\{"id":"job_[0-9a-f]+".*?"dismissed":(?:true|false)\}')
+
+def fetch_url(url):
+    req = urllib.request.Request(url, headers={"User-Agent": "job-hunt-agent"})
+    with urllib.request.urlopen(req, timeout=60, context=ssl_ctx()) as r:
+        return r.read().decode("utf-8", "replace")
+
+def parse_ecr(html_text, src):
+    """Return rows in the standard scanner schema."""
+    unescaped = html_text.replace('\\"', '"').replace("\\\\", "\\")
+    accept_tracks = [t.lower() for t in src.get("accept_tracks", [])]
+    accept_hubs = [h.lower() for h in src.get("accept_hubs", [])]
+    today, rows, seen_ids = dt.date.today(), [], set()
+    for m in ECR_JOB.finditer(unescaped):
+        try:
+            j = json.loads(m.group(0))
+        except Exception:
+            continue
+        if j.get("id") in seen_ids or j.get("closed"):
+            continue
+        seen_ids.add(j["id"])
+        # Region gate FIRST. ECR locations always contain commas, which would
+        # trip the generic accept_metros rule and admit every international row.
+        hub = (j.get("hub") or "").lower()
+        if accept_hubs and hub not in accept_hubs:
+            continue
+        countries = [c.lower() for c in (j.get("placeCountries") or [])]
+        if countries and not any(c in ("united states", "canada") for c in countries):
+            continue
+        age_days = None
+        if j.get("postedAt"):
+            try:
+                age_days = float((today - dt.date.fromisoformat(j["postedAt"][:10])).days)
+            except Exception:
+                pass
+        rows.append({
+            "company": j.get("company", ""),
+            "role": j.get("title", ""),
+            # Append ECR's own region so accept-list entries like "Bay Area" match a
+            # city string ("Santa Clara, California") that never spells the metro out.
+            "location": (j.get("location", "") + (f" · {j['hub']}" if j.get("hub")
+                         and j["hub"] != "Other U.S." else "")),
+            "url": j.get("applyUrl", ""),
+            "age": f"{int(age_days)}d" if age_days is not None else "",
+            "age_days": age_days,
+            "deadline": j.get("deadlineAt"),
+            "track": j.get("track"),
+            # A track the profile accepts bypasses the title regex: ECR's own
+            # classification is more reliable than matching words in a title.
+            "_track_ok": (j.get("track") or "").lower() in accept_tracks,
+            "_strict_loc": True,
+        })
+    return rows
 
 def row_hash(row):
     key = f"{row['company']}|{row['role']}|{row['location']}".lower()
@@ -179,25 +264,43 @@ def _norm_role(r):
     return {t for t in toks if t and not t.isdigit() and t not in ROLE_STOP}
 
 def load_applied(tracker_path):
-    """Parse the markdown tracker into a list of (company_norm, role_tokens)."""
+    """Parse a markdown tracker into a list of (company_norm, role_tokens).
+
+    Column positions come from each table's header row, so both layouts work:
+    the authoritative wiki/career tracker (| # | Company | Role | ...) and the
+    packages tracker (| Company | Role | ...). role_tokens is None when the
+    tracker doesn't know the role (e.g. a generic confirmation email), which
+    is_tracked treats as matching every role at that company.
+    """
     applied = []
     p = os.path.expanduser(tracker_path)
     if not os.path.exists(p):
         return applied
+    ci, ri = 0, 1
     with open(p) as f:
         for line in f:
             line = line.strip()
             if not line.startswith("|"):
                 continue
             cells = [c.strip() for c in line.strip("|").split("|")]
-            if len(cells) < 2 or cells[0].lower() == "company":
+            lowered = [c.lower() for c in cells]
+            if "company" in lowered:                  # header row: re-map columns
+                ci = lowered.index("company")
+                ri = lowered.index("role") if "role" in lowered else ci + 1
+                continue
+            if len(cells) <= max(ci, ri):
                 continue
             if all(set(c) <= set("-: ") for c in cells):
                 continue
-            company = re.sub(r"^[—\-\s]+", "", cells[0])   # strip leading em-dash markers
+            company = re.sub(r"^[—\-\s]+", "", cells[ci])   # strip leading em-dash markers
             cn = _norm_company(company)
-            if cn:
-                applied.append((cn, _norm_role(cells[1])))
+            if not cn or cn.isdigit():
+                continue
+            role = cells[ri]
+            if "unspecified" in role.lower():
+                applied.append((cn, None))
+            else:
+                applied.append((cn, _norm_role(role)))
     return applied
 
 def is_tracked(row, applied):
@@ -205,6 +308,8 @@ def is_tracked(row, applied):
     for tc, tr in applied:
         if tc != cn:
             continue
+        if tr is None:               # tracker row with unknown role: treat as a match
+            return True
         if rt == tr:
             return True
         if not rt and not tr:        # both generic (e.g. plain "SWE Intern") at same company
@@ -237,7 +342,12 @@ def main():
 
     # Tracker is the source of truth for already-applied / already-drafted positions
     # (covers manual applications and the inbox sweep). Filter them out at scan time.
-    applied = load_applied(prefs["tracker_path"]) if prefs.get("tracker_path") else []
+    # tracker_path = authoritative submitted applications (wiki/career); packages_tracker_path
+    # = tailored packages (wiki/my-work/career). Read both.
+    applied = []
+    for key in ("tracker_path", "packages_tracker_path"):
+        if prefs.get(key):
+            applied += load_applied(prefs[key])
 
     new_rows, scanned, passed, aged_out, tracked = [], 0, 0, 0, 0
     for src in prefs["sources"].get("github_repos", []):
@@ -263,6 +373,34 @@ def main():
                 continue
             row["hash"] = h
             row["source"] = src["repo"]
+            new_rows.append(row)
+            seen.add(h)
+
+    for src in prefs["sources"].get("web_sources", []):
+        try:
+            rows = parse_ecr(fetch_url(src["url"]), src)
+        except Exception as e:
+            print(f"# WARN {src.get('name', src['url'])}: {e}", file=sys.stderr)
+            continue
+        for row in rows:
+            scanned += 1
+            if not matches(row, prefs):
+                continue
+            if applied and is_tracked(row, applied):
+                tracked += 1
+                continue
+            if args.max_age_days is not None:
+                if row["age_days"] is None or row["age_days"] > args.max_age_days:
+                    aged_out += 1
+                    continue
+            passed += 1
+            h = row_hash(row)
+            if not args.ignore_seen and h in seen:
+                continue
+            row["hash"] = h
+            row["source"] = src.get("name", src["url"])
+            row.pop("_track_ok", None)
+            row.pop("_strict_loc", None)
             new_rows.append(row)
             seen.add(h)
 

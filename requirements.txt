@@ -1,2 +1,10 @@
+# Scanner (bin/poll-repo.py, Claude Code mode)
 PyYAML>=6.0
 certifi>=2024.2.2
+# Desktop app backend (jobhunt/)
+anthropic>=1.9
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pydantic>=2.7
+python-multipart>=0.0.9
+typst>=0.13

@@ -15,3 +15,11 @@ applications/
 *.pyc
 __pycache__/
 .venv/
+
+# Desktop app build artifacts
+web/node_modules/
+web/dist/
+desktop/node_modules/
+desktop/build/
+desktop/dist/
+.pytest_cache/

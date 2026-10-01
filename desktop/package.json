@@ -1,0 +1,48 @@
+{
+  "name": "job-hunt-agent",
+  "productName": "Job Hunt Agent",
+  "version": "0.1.0",
+  "description": "Finds roles, scores fit, and drafts tailored applications for you to review and submit.",
+  "main": "main.js",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "build:web": "npm --prefix ../web run build",
+    "build:backend": "cd .. && .venv/bin/pyinstaller --noconfirm --clean desktop/backend.spec --distpath desktop/build/backend --workpath desktop/build/pyi",
+    "dist": "npm run build:web && npm run build:backend && electron-builder"
+  },
+  "build": {
+    "appId": "dev.yihan.jobhuntagent",
+    "productName": "Job Hunt Agent",
+    "files": [
+      "main.js",
+      "preload.js"
+    ],
+    "extraResources": [
+      {
+        "from": "build/backend/jobhunt-backend",
+        "to": "backend"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        "dmg"
+      ]
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ]
+    }
+  },
+  "devDependencies": {
+    "electron": "^44.5.0",
+    "electron-builder": "^26.15.3"
+  }
+}

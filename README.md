@@ -1,102 +1,126 @@
 # job-hunt-agent
 
-A reproducible, multi-agent recruiting pipeline for Claude Code. It watches job-listing
-sources, scores each new role against your profile, drafts a tailored application package,
-and **fills the form up to the submit button** so you review and submit yourself. It never
-submits, creates accounts, or types passwords on your behalf.
+Finds new roles, scores each one against your background, and drafts a tailored one-page
+resume plus application answers. **You review and submit every application yourself.** It never
+submits, creates accounts, types passwords, or invents experience.
 
-## The agents
+It comes in two forms that share the same scanner and rules:
+
+- **Desktop app** (`jobhunt/` + `web/` + `desktop/`): a local app with a UI, for anyone. Bring
+  your own Anthropic API key, import your resume, and pick where to look.
+- **Claude Code mode** (`agents/` + `skills/`): the original multi-agent pipeline, driven by
+  `/recruit` inside Claude Code, for people who want to wire it into their own notes and scripts.
+
+## Desktop app
+
+### What it does
+
+| Step | What happens |
+|------|--------------|
+| **Scan** | Polls your sources, drops what's obviously out (wrong title, level, location, age, excluded company), and dedups against roles you've already drafted or applied to. |
+| **Score** | Fetches the job description and has Claude score fit 0-100 on five weighted parts (role fit, skills, eligibility, level, preferences), each with a one-line reason. Hard gates (work authorization, level, term, location, your dealbreakers) mark a role ineligible. |
+| **Draft** | Tailors a one-page resume from your **experience bank**. Every bullet must trace back to a real bullet you wrote; untraceable bullets are discarded in code, not just by prompt. Drafts answers to the posting's real questions where the ATS publishes them (Greenhouse), reusing your saved answers word for word. |
+| **Review** | You edit bullets, re-render the PDF, copy answers, open the posting, and submit. Then you mark it *Applied* and track it through interviews on the board. |
+
+Sources: GitHub listing repos (SimplifyJobs, DereC4 and similar, both markdown and HTML tables),
+pending-submission issues on those repos, any company's **Greenhouse / Lever / Ashby** board, and
+Early Career Radar. You can also paste in any role by hand.
+
+### Run it (from source)
+
+```bash
+git clone https://github.com/yih0nk/job-hunt-agent && cd job-hunt-agent
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+npm --prefix web install && npm --prefix web run build
+.venv/bin/python -m jobhunt          # opens http://127.0.0.1:<port>/ in your browser
+```
+
+Or as a desktop window:
+
+```bash
+npm --prefix desktop install
+npm --prefix desktop start
+```
+
+The first launch walks you through three steps: API key → resume import → search and sources.
+
+### Build the installable app
+
+```bash
+.venv/bin/pip install -r requirements-dev.txt
+npm --prefix desktop run dist        # web build → PyInstaller backend → electron-builder
+```
+
+This produces a `.dmg` (macOS), NSIS installer (Windows), or AppImage (Linux) in
+`desktop/dist/`. The Python backend is bundled, so users don't need Python installed. Builds are
+unsigned; signing and notarization are up to you.
+
+### Cost
+
+Scoring one role is one Claude call over the job description plus your profile. The profile is
+prompt-cached, so a scan that scores many roles pays for it roughly once. Drafting a package takes
+two larger calls. The default model is Claude Opus 5. Settings lets you switch to Sonnet 5 or
+Haiku 4.5 and lower the effort to spend less.
+
+### Where your data lives
+
+Everything (profile, jobs, packages, and your API key) is stored in one local folder:
+`~/Library/Application Support/JobHuntAgent` on macOS, `%APPDATA%\JobHuntAgent` on Windows,
+`~/.local/share/job-hunt-agent` on Linux, or `$JOBHUNT_HOME` if set. The only thing that leaves
+your machine is the text sent to Claude for scoring and drafting. The local server binds to
+127.0.0.1 and requires a per-launch token, so other websites in your browser can't drive it.
+
+### Develop
+
+```bash
+JOBHUNT_TOKEN=dev .venv/bin/python -m jobhunt --port 8765 --no-browser   # API
+npm --prefix web run dev                                                   # UI with hot reload, proxies /api
+.venv/bin/python -m pytest tests                                           # offline tests (no network, no API spend)
+```
+
+Layout:
+
+```
+jobhunt/    backend: sources · filters · jd (link resolve + JD/question fetch) · llm · pipeline · resume (Typst) · server
+web/        React + Vite UI
+desktop/    Electron shell + PyInstaller spec for the bundled backend
+tests/      offline tests; the Claude path runs against a mocked HTTP transport
+```
+
+## Claude Code mode
+
+The original pipeline: four agents orchestrated by the `/recruit` skill.
 
 | Agent | Job |
 |-------|-----|
-| **Scout** | Poll listing sources, diff against seen + already-applied roles, apply hard filters, queue the new ones |
-| **Matcher** | Score each role 0-100 on a transparent rubric, pick a resume category, flag ineligible roles |
-| **Applier** | Resolve the real ATS link, tailor the resume, draft answers, fill to the submit button, stop for review |
+| **Scout** | Poll listing sources, diff against seen and already-applied roles, apply hard filters, queue the new ones |
+| **Matcher** | Score each role 0-100 on the rubric in `config/scoring.yaml`, pick a resume category, flag ineligible roles |
+| **Applier** | Resolve the real ATS link, tailor the resume via your tailoring spec, draft answers, stop for review |
 | **Tracker** | Maintain your board, detect recruiter replies via email, surface cross-application patterns |
 
-Orchestrated by the `/recruit` skill. A companion `/outreach` skill drafts a post-application
-cold email to a real contact (unsent Gmail draft only).
-
-## Sources it can watch
-
-- **GitHub markdown listing repos** (e.g. DereC4-style tables) — links auto-resolved, incl. a
-  deterministic decoder for `zapply.jobs` tracking slugs.
-- **GitHub HTML listing repos** (e.g. SimplifyJobs) — direct ATS links extracted, no redirect.
-- **Web listing pages** parsed from their public HTML (e.g. Early Career Radar), using the
-  source's own role classification. Public pages only, never an API.
-
-All configured in `config/preferences.yaml`.
-
-## How scoring works
-
-Each role gets a 0-100 fit score from a weighted rubric (`config/scoring.yaml`):
-role-type (30) + tech-stack overlap (25) + eligibility & logistics (20) + level fit (15) +
-domain/strengths (10). Every score returns its sub-scores and a one-line reason. Hard gates
-(citizenship-required, grad-only, wrong term, impossible location, defense) flag a role
-`INELIGIBLE` regardless of score. The threshold decides what happens: `>=70` auto-draft,
-`55-69` review manually, below that dropped. Tune it in the config after your first run.
-
-## Quick start
+A companion `/outreach` skill drafts a post-application cold email to a real contact (as an unsent Gmail draft only).
 
 ```bash
-git clone https://github.com/yih0nk/job-hunt-agent
-cd job-hunt-agent
 pip install -r requirements.txt
-
 cp config/profile.example.yaml         config/profile.yaml
 cp config/preferences.example.yaml     config/preferences.yaml
 cp config/learned-answers.example.yaml config/learned-answers.yaml
-# edit those three with your details + the sources you want watched (all gitignored)
-
+# fill those in (all gitignored), then:
 python3 bin/poll-repo.py --config config/preferences.yaml   # smoke-test the Scout
 ```
-Then run `/recruit` in Claude Code.
 
-## Make it yours
+Then run `/recruit` in Claude Code. Point `profile.resume.tailoring_spec` at your own copy of
+`RESUME-TAILORING.template.md`, and set `tracker_path` / `packages_tracker_path` so dedup
+covers everything you've already submitted or drafted.
 
-1. **Fill the three configs.** `profile.yaml` (identity, work auth, EEO, resume paths,
-   tracker paths), `preferences.yaml` (sources, role types, locations, hard-no companies),
-   `learned-answers.yaml` (reusable answers to repeated application questions).
-2. **Point at your resume system.** `profile.resume.work_dir` holds a base LaTeX resume plus
-   per-category variant folders. Copy `RESUME-TAILORING.template.md` to your own spec and set
-   `profile.resume.tailoring_spec` to it — the Applier follows whatever that spec says.
-3. **Set your trackers.** `tracker_path` (what you've actually submitted) and
-   `packages_tracker_path` (tailored packages). Both are read for dedup, so no position is
-   ever surfaced, re-drafted, or re-contacted twice.
-4. **Optional autonomy.** Schedule `/recruit` (e.g. a local scheduled task) to scan, score,
-   and draft on a cadence so packages are waiting for your review.
-
-## Time-window scans
-
-```bash
-python3 bin/poll-repo.py --max-age-days 1 --ignore-seen   # everything posted in the past day
-python3 bin/poll-repo.py --max-age-days 7 --ignore-seen   # past week
-```
-`--ignore-seen` is query mode: it does not record results or dedup against prior runs.
-
-## Privacy model
-
-`config/*.yaml` (your real profile, preferences, learned answers), `state/`, and
-`applications/` are **gitignored**. Only the `*.example.yaml` templates and the agent/skill
-code are public. Your resume, answers, and drafted packages never leave your machine.
+Time-window scans: `python3 bin/poll-repo.py --max-age-days 7 --ignore-seen` shows everything
+posted in the past week without recording it.
 
 ## What it will not do
 
 Submit applications · create accounts · type or set passwords · solve CAPTCHAs ·
-fabricate experience · apply to defense companies · check "Applied" without your
-confirmation. These are handed off to you by design — a review gate produces better
+fabricate experience · mark anything "Applied" without you. A human review gate produces better
 applications and keeps you out of ATS bot filters.
-
-## Layout
-
-```
-agents/     scout · matcher · applier · tracker
-skills/     recruit orchestrator · outreach
-bin/        poll-repo.py (parse + diff + dedup) · resolve-link.py (aggregator -> real ATS)
-config/     scoring.yaml + *.example.yaml templates
-state/      runtime (gitignored)
-RESUME-TAILORING.template.md   copy to your own tailoring spec
-```
 
 ## License
 

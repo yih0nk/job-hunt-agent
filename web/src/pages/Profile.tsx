@@ -84,7 +84,7 @@ export default function ProfilePage() {
       <div className="page-head">
         <div><h1>Profile</h1><p>Your experience bank. Tailored resumes only ever draw from what's here.</p></div>
         <div className="row">
-          {!saved && <span className="pill warn">Unsaved</span>}
+          {!saved && <span className="chip yellow">Unsaved</span>}
           <label className="btn">{busy ? <Spinner /> : 'Re-import resume'}
             <input type="file" accept=".pdf,.txt,.md,.tex" hidden onChange={e => reimport(e.target.files?.[0])} /></label>
           <button className="btn" onClick={() => { setShowPdf(s => !s); setBust(b => b + 1) }}>{showPdf ? 'Hide' : 'Preview'} base resume</button>

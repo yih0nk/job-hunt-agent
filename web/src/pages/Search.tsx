@@ -152,7 +152,7 @@ export default function SearchPage() {
     <div className="page">
       <div className="page-head">
         <div><h1>Search &amp; sources</h1><p>What to look for and where. Changes apply to the next run.</p></div>
-        <div className="row">{saved && <span className="pill good">Saved</span>}
+        <div className="row">{saved && <span className="chip mint">Saved</span>}
           <button className="btn primary" onClick={save}>Save</button></div>
       </div>
       <ErrorBox error={error} />

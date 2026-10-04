@@ -9,7 +9,7 @@ ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))
 datas = [(os.path.join(ROOT, "jobhunt", "templates"), "jobhunt/templates"),
          (os.path.join(ROOT, "web", "dist"), "web/dist")]
 binaries, hiddenimports = [], []
-for pkg in ("typst", "uvicorn", "anthropic"):
+for pkg in ("typst", "uvicorn", "anthropic", "keyring"):
     d, b, h = collect_all(pkg)
     datas += d
     binaries += b

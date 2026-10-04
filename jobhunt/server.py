@@ -21,6 +21,7 @@ from .jd import resolve
 from .filters import job_id
 from .models import LearnedAnswer, Preferences, Profile, Settings, Source
 from .paths import data_dir, resource_dir
+from . import keystore
 from .models import TailoredResume
 from .resume import build_data, render_pdf, render_png
 from .sources import PRESETS
@@ -142,6 +143,7 @@ def presets():
 class SettingsView(BaseModel):
     has_key: bool
     key_hint: str
+    key_in_keychain: bool
     model: str
     score_model: str
     effort: str
@@ -149,6 +151,7 @@ class SettingsView(BaseModel):
 
 def _settings_view(s: Settings) -> SettingsView:
     return SettingsView(has_key=bool(s.api_key), key_hint=("…" + s.api_key[-4:]) if s.api_key else "",
+                        key_in_keychain=bool(s.api_key) and keystore.get() == s.api_key,
                         model=s.model, score_model=s.score_model, effort=s.effort)
 
 
@@ -175,7 +178,7 @@ def put_settings(body: SettingsIn) -> SettingsView:
         s.score_model = body.score_model
     if body.effort in ("low", "medium", "high"):
         s.effort = body.effort
-    store.put_doc("settings", s)
+    store.put_settings(s)
     return _settings_view(s)
 
 

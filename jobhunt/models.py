@@ -143,7 +143,7 @@ class Preferences(BaseModel):
 # --- Settings -----------------------------------------------------------------------
 
 class Settings(BaseModel):
-    api_key: str = ""
+    api_key: str = ""                     # kept in the OS keychain when one is available
     model: str = "claude-opus-5"          # drafting + resume import: where quality matters most
     score_model: str = "claude-sonnet-5"  # scoring runs on every new role, so it defaults cheaper
     effort: Literal["low", "medium", "high"] = "medium"

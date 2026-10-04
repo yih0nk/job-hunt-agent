@@ -10,6 +10,7 @@ from typing import Any, Optional, TypeVar
 
 from pydantic import BaseModel
 
+from . import keystore
 from .models import Preferences, Profile, Settings
 from .paths import db_path
 
@@ -76,7 +77,7 @@ class Store:
         self.conn.executescript(SCHEMA)
         self.conn.commit()
         try:
-            os.chmod(self.path, 0o600)   # holds the API key + personal details
+            os.chmod(self.path, 0o600)   # personal details (and the API key if no keychain)
         except OSError:
             pass
 
@@ -100,7 +101,18 @@ class Store:
         return self.get_doc("preferences", Preferences)
 
     def settings(self) -> Settings:
-        return self.get_doc("settings", Settings)
+        s = self.get_doc("settings", Settings)
+        key = keystore.get()
+        if key:
+            s.api_key = key
+        elif s.api_key and keystore.put(s.api_key):
+            # A key saved before keychain support: move it out of the database.
+            self.put_doc("settings", s.model_copy(update={"api_key": ""}))
+        return s
+
+    def put_settings(self, s: Settings) -> None:
+        stored = keystore.put(s.api_key)
+        self.put_doc("settings", s.model_copy(update={"api_key": ""}) if stored else s)
 
     # --- jobs -------------------------------------------------------------------
     def _q(self, sql: str, args: tuple = ()) -> list[sqlite3.Row]:

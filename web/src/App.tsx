@@ -2,13 +2,14 @@ import { useCallback, useEffect, useState } from 'react'
 import { api, type AppState } from './api'
 import Onboarding from './pages/Onboarding'
 import Inbox from './pages/Inbox'
+import Review from './pages/Review'
 import Board from './pages/Board'
 import ProfilePage from './pages/Profile'
 import SearchPage from './pages/Search'
 import SettingsPage from './pages/Settings'
-import { ErrorBox, Spinner } from './ui'
+import { ErrorBox, money, Spinner } from './ui'
 
-type Page = 'inbox' | 'board' | 'profile' | 'search' | 'settings'
+type Page = 'inbox' | 'ready' | 'review' | 'board' | 'profile' | 'search' | 'settings'
 
 export default function App() {
   const [state, setState] = useState<AppState | null>(null)
@@ -62,37 +63,48 @@ export default function App() {
       onRun={startRun} />
   }
 
+  if (page === 'review') {
+    return <Review onChange={refresh} onExit={() => { setPage('inbox'); setTick(t => t + 1) }} />
+  }
+
   const c = state.counts
-  const inboxCount = (c.review ?? 0) + (c.drafted ?? 0)
+  const ready = (c.drafted ?? 0) + (c.drafting ?? 0)
   const tracked = (c.applied ?? 0) + (c.interviewing ?? 0) + (c.offer ?? 0)
   const p = state.progress
+  const nav = (id: Page, label: string, count?: number) => (
+    <button className={page === id ? 'on' : ''} onClick={() => setPage(id)}>
+      {label}{!!count && <span className="count">{count}</span>}</button>
+  )
 
   return (
     <div className="app">
       <nav className="nav">
-        <div className="brand">Job Hunt Agent<small>You review. You submit.</small></div>
-        <button className={page === 'inbox' ? 'on' : ''} onClick={() => setPage('inbox')}>
-          Inbox <span className="count">{inboxCount || ''}</span></button>
-        <button className={page === 'board' ? 'on' : ''} onClick={() => setPage('board')}>
-          Tracker <span className="count">{tracked || ''}</span></button>
-        <button className={page === 'profile' ? 'on' : ''} onClick={() => setPage('profile')}>Profile</button>
-        <button className={page === 'search' ? 'on' : ''} onClick={() => setPage('search')}>Search &amp; sources</button>
-        <button className={page === 'settings' ? 'on' : ''} onClick={() => setPage('settings')}>Settings</button>
+        <div className="brand">
+          <span className="brand-mark">J</span>
+          <div><b>Job Hunt Agent</b><small>You review. You submit.</small></div>
+        </div>
+        {nav('inbox', 'Inbox', c.review)}
+        {nav('ready', 'Ready to submit', ready)}
+        {nav('board', 'Tracker', tracked)}
+        {nav('profile', 'Profile')}
+        {nav('search', 'Search & sources')}
+        {nav('settings', 'Settings')}
         <div className="spacer" />
         <div className="runbar">
           {p.running ? (
             <>
               <div className="row"><Spinner /> <b>{p.stage === 'scan' ? 'Scanning' : p.stage === 'score' ? 'Scoring' : 'Drafting'}</b>
-                <span className="muted">{p.done}/{p.total}</span></div>
+                <span className="muted mono">{p.done}/{p.total}</span></div>
               <div className="progress"><div style={{ width: `${p.total ? (100 * p.done) / p.total : 5}%` }} /></div>
               <div className="muted" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.message}</div>
             </>
           ) : (
             <>
-              <button className="btn primary" onClick={startRun} disabled={!state.has_key}>Find &amp; score new roles</button>
+              <button className="btn primary" onClick={startRun} disabled={!state.has_key}>Find &amp; score</button>
               {(c.new ?? 0) > 0 && <span className="muted">{c.new} found, not yet scored</span>}
               {state.last_run?.finished && (
-                <span className="muted">Last run {new Date(state.last_run.finished * 1000).toLocaleString()}</span>
+                <span className="muted">Last run {new Date(state.last_run.finished * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                  {typeof state.last_run.summary?.cost === 'number' && ` · ${money(state.last_run.summary.cost as number)}`}</span>
               )}
             </>
           )}
@@ -105,7 +117,9 @@ export default function App() {
       </nav>
       <main className="main">
         {error && <div style={{ padding: 12 }}><ErrorBox error={error} /></div>}
-        {page === 'inbox' && <Inbox tick={tick} onChange={refresh} />}
+        {(page === 'inbox' || page === 'ready') && (
+          <Inbox tick={tick} counts={c} onChange={refresh} onReview={() => setPage('review')} startTab={page === 'ready' ? 1 : 0} />
+        )}
         {page === 'board' && <Board tick={tick} onChange={refresh} />}
         {page === 'profile' && <ProfilePage />}
         {page === 'search' && <SearchPage />}

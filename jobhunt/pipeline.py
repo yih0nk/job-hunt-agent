@@ -155,6 +155,14 @@ def draft(store: Store, job_id_: str) -> dict:
     name = _slug(profile.name or "resume").replace("-", "_") or "resume"
     pdf = render_pdf(build_data(profile, tailored), out_dir / f"{name}_resume.pdf")
     pages = page_count(pdf)
+    trimmed = 0
+    while pages > 1 and trimmed < MAX_TRIM and _trim_one(tailored):
+        trimmed += 1
+        pdf = render_pdf(build_data(profile, tailored), pdf)
+        pages = page_count(pdf)
+    if trimmed:
+        tailored.notes.append(f"Cut {trimmed} lower-priority bullet{'s' if trimmed > 1 else ''} "
+                              "to fit one page. Restore any under Edit bullets.")
 
     ans = llm.answers(settings, profile, prefs, job, posting.get("questions"))
     package = {
@@ -168,6 +176,25 @@ def draft(store: Store, job_id_: str) -> dict:
     }
     store.update_job(job["id"], package=package, status="drafted", resolved_url=url)
     return store.job(job["id"])
+
+
+MAX_TRIM = 20
+
+
+def _trim_one(t: TailoredResume) -> bool:
+    """Drop the least relevant line: entries are ordered most-relevant first, so cut from
+    the end. Take the last bullet of the last multi-bullet entry; if every entry is down
+    to one bullet, drop the last entry. Returns False when nothing more can go."""
+    for e in reversed(t.entries):
+        if len(e.bullets) > 1:
+            e.bullets.pop()
+            if len(e.source_bullet_ids) > len(e.bullets):
+                e.source_bullet_ids.pop()
+            return True
+    if len(t.entries) > 1:
+        t.entries.pop()
+        return True
+    return False
 
 
 def rerender(store: Store, job_id_: str, tailored: dict) -> dict:

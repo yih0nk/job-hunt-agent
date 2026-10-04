@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import typst
@@ -56,6 +57,6 @@ def render_png(data: dict, ppi: int = 110) -> list[bytes]:
 
 
 def page_count(pdf: Path) -> int:
-    # Cheap page count without a PDF library: count page objects.
+    """Count page objects (/Type /Page, not /Pages) without a PDF library."""
     raw = pdf.read_bytes()
-    return max(1, raw.count(b"/Type /Page") - raw.count(b"/Type /Pages")) if raw else 0
+    return max(1, len(re.findall(rb"/Type\s*/Page(?![a-zA-Z])", raw))) if raw else 0

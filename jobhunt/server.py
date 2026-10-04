@@ -8,6 +8,9 @@ from __future__ import annotations
 
 import os
 import secrets
+import threading
+import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
@@ -30,9 +33,35 @@ from .store import STATUSES, Store
 TOKEN = os.environ.get("JOBHUNT_TOKEN") or secrets.token_urlsafe(24)
 ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
 
-app = FastAPI(title="job-hunt-agent", docs_url=None, redoc_url=None)
 store = Store()
 llm.usage_hook = store.log_usage
+
+
+def run_due(s: Settings, last_run: Optional[dict], now: float, running: bool) -> bool:
+    if s.auto_run_hours <= 0 or not s.api_key or running:
+        return False
+    return not last_run or now - last_run["started"] >= s.auto_run_hours * 3600
+
+
+def _scheduler(stop: threading.Event) -> None:
+    """Scan + score every `auto_run_hours` while the app is open."""
+    while not stop.wait(60):
+        try:
+            if run_due(store.settings(), store.last_run(), time.time(), pipeline.progress.running):
+                pipeline.run_in_background(store)
+        except Exception:
+            pass
+
+
+@asynccontextmanager
+async def lifespan(_app):
+    stop = threading.Event()
+    threading.Thread(target=_scheduler, args=(stop,), daemon=True).start()
+    yield
+    stop.set()
+
+
+app = FastAPI(title="job-hunt-agent", docs_url=None, redoc_url=None, lifespan=lifespan)
 
 
 def web_dist() -> Path:
@@ -147,12 +176,14 @@ class SettingsView(BaseModel):
     model: str
     score_model: str
     effort: str
+    auto_run_hours: int
 
 
 def _settings_view(s: Settings) -> SettingsView:
     return SettingsView(has_key=bool(s.api_key), key_hint=("…" + s.api_key[-4:]) if s.api_key else "",
                         key_in_keychain=bool(s.api_key) and keystore.get() == s.api_key,
-                        model=s.model, score_model=s.score_model, effort=s.effort)
+                        model=s.model, score_model=s.score_model, effort=s.effort,
+                        auto_run_hours=s.auto_run_hours)
 
 
 @app.get("/api/settings")
@@ -165,6 +196,7 @@ class SettingsIn(BaseModel):
     model: Optional[str] = None
     score_model: Optional[str] = None
     effort: Optional[str] = None
+    auto_run_hours: Optional[int] = None
 
 
 @app.put("/api/settings")
@@ -178,6 +210,8 @@ def put_settings(body: SettingsIn) -> SettingsView:
         s.score_model = body.score_model
     if body.effort in ("low", "medium", "high"):
         s.effort = body.effort
+    if body.auto_run_hours is not None:
+        s.auto_run_hours = max(0, min(168, body.auto_run_hours))
     store.put_settings(s)
     return _settings_view(s)
 

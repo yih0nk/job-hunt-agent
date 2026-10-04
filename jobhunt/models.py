@@ -147,6 +147,7 @@ class Settings(BaseModel):
     model: str = "claude-opus-5"          # drafting + resume import: where quality matters most
     score_model: str = "claude-sonnet-5"  # scoring runs on every new role, so it defaults cheaper
     effort: Literal["low", "medium", "high"] = "medium"
+    auto_run_hours: int = 0               # 0 = off; otherwise scan + score every N hours while open
 
 
 # --- LLM outputs (structured) -------------------------------------------------------

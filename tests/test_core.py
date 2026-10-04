@@ -103,14 +103,15 @@ def test_render_escapes_markup(tmp_path, profile):
 
 # --- LLM path (mocked transport) ----------------------------------------------------
 
-def _mock_client(payload: dict, captured: list):
+def _mock_client(payload: dict, captured: list, usage: dict | None = None):
     def handler(request: httpx2.Request) -> httpx2.Response:
-        captured.append(json.loads(request.content))
+        body = json.loads(request.content)
+        captured.append(body)
         return httpx2.Response(200, json={
-            "id": "msg_1", "type": "message", "role": "assistant", "model": "claude-opus-5",
+            "id": "msg_1", "type": "message", "role": "assistant", "model": body["model"],
             "content": [{"type": "text", "text": json.dumps(payload)}],
             "stop_reason": "end_turn", "stop_sequence": None,
-            "usage": {"input_tokens": 10, "output_tokens": 10}})
+            "usage": usage or {"input_tokens": 10, "output_tokens": 10}})
     return anthropic.Anthropic(api_key="test", http_client=anthropic.DefaultHttpxClient(transport=httpx2.MockTransport(handler)))
 
 
@@ -197,3 +198,27 @@ def test_refusal_raises(monkeypatch, profile):
     monkeypatch.setattr(llm, "_client", lambda s: client)
     with pytest.raises(llm.LLMError, match="declined"):
         llm.score(Settings(api_key="x"), profile, Preferences(), {"company": "A", "title": "T"})
+
+
+# --- spend tracking, keychain, one-page trim ---------------------------------------
+
+def test_usage_logged_per_role(monkeypatch, store, profile):
+    store.put_doc("profile", profile)
+    store.put_settings(Settings(api_key="x"))
+    store.insert_job({"id": "j1", "company": "Acme", "title": "SWE Intern"})
+    store.update_job("j1", description="Go")
+    usage = {"input_tokens": 1_000_000, "output_tokens": 100_000,
+             "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}
+    monkeypatch.setattr(llm, "usage_hook", store.log_usage)
+    monkeypatch.setattr(llm, "_client", lambda s: _mock_client(_fit(70), [], usage))
+    pipeline.score_one(store, "j1")
+    cost = store.job("j1")["cost"]
+    # Sonnet 5: 1M input at $2 + 0.1M output at $10 = $3.00
+    assert cost["by_kind"] == {"score": 3.0} and cost["total"] == 3.0
+    assert store.usage_summary()["all_time"] == 3.0
+
+
+def test_cost_estimate_with_cache():
+    u = {"input_tokens": 0, "output_tokens": 0, "cache_write": 1_000_000, "cache_read": 1_000_000}
+    assert llm.estimate_cost("claude-opus-5", u) == pytest.approx(5 * 1.25 + 0.5)
+    assert llm.estimate_cost("some-unknown-model", u) is None

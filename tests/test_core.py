@@ -242,3 +242,24 @@ def test_api_key_moves_to_keychain(monkeypatch, store):
     assert raw.api_key == ""                                    # and gone from the database
     store.put_settings(Settings(api_key="sk-new"))
     assert store.settings().api_key == "sk-new" and store.get_doc("settings", Settings).api_key == ""
+
+
+def test_long_resume_trimmed_to_one_page(monkeypatch, store):
+    bank = [Entry(id=f"e{i}", kind="work", title=f"Role {i}", org="Org",
+                  bullets=[Bullet(id=f"e{i}b{k}", text="Built and shipped a meaningful system " * 4)
+                           for k in range(6)]) for i in range(6)]
+    prof = Profile(name="Long Resume", experience=bank)
+    store.put_doc("profile", prof)
+    store.put_settings(Settings(api_key="x"))
+    store.insert_job({"id": "j2", "company": "Acme", "title": "SWE"})
+    store.update_job("j2", description="Go")
+    tailored = {"headline": "h", "skills": [], "notes": [],
+                "entries": [{"entry_id": e.id, "bullets": [b.text for b in e.bullets],
+                             "source_bullet_ids": [b.id for b in e.bullets]} for e in bank]}
+    responses = iter([tailored, {"answers": [], "gaps": []}])
+    monkeypatch.setattr(llm, "_client", lambda s: _mock_client(next(responses), []))
+    pkg = pipeline.draft(store, "j2")["package"]
+    assert pkg["pages"] == 1
+    assert any("to fit one page" in n for n in pkg["tailored"]["notes"])
+    entries = pkg["tailored"]["entries"]
+    assert entries[0]["bullets"] and len(entries[0]["bullets"]) >= len(entries[-1]["bullets"])  # cut from the end

@@ -23,9 +23,9 @@ from . import llm, pipeline
 from .jd import resolve
 from .filters import job_id
 from .models import LearnedAnswer, Preferences, Profile, Settings, Source
-from .paths import data_dir, resource_dir
 from . import keystore
 from .models import TailoredResume
+from .paths import data_dir, resource_dir
 from .resume import build_data, render_pdf, render_png
 from .sources import PRESETS
 from .store import STATUSES, Store
@@ -55,6 +55,7 @@ def _scheduler(stop: threading.Event) -> None:
 
 @asynccontextmanager
 async def lifespan(_app):
+    pipeline.recover_interrupted(store)
     stop = threading.Event()
     threading.Thread(target=_scheduler, args=(stop,), daemon=True).start()
     yield
@@ -316,9 +317,13 @@ def score_job(jid: str):
 
 
 @app.post("/api/jobs/{jid}/draft")
-def draft_job(jid: str):
+def draft_job(jid: str, background: bool = False):
     if not store.job(jid):
         raise HTTPException(404, "No such job")
+    if background:
+        if not store.settings().api_key:
+            raise HTTPException(400, "Add your Anthropic API key in Settings first.")
+        return pipeline.queue_draft(store, jid)
     return _llm_errors(lambda: pipeline.draft(store, jid))
 
 

@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS runs (
 """
 
 # Status lifecycle. "applied" and later are only ever set by the user.
-STATUSES = ["new", "scored", "review", "ineligible", "drafted", "applied",
+STATUSES = ["new", "scored", "review", "ineligible", "drafting", "drafted", "applied",
             "interviewing", "offer", "rejected", "archived"]
 
 _lock = threading.RLock()   # one connection shared across worker threads
@@ -75,6 +75,9 @@ class Store:
         self.conn = sqlite3.connect(self.path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
+        cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(jobs)")}
+        if "last_error" not in cols:   # added after v0.1
+            self.conn.execute("ALTER TABLE jobs ADD COLUMN last_error TEXT DEFAULT ''")
         self.conn.commit()
         try:
             os.chmod(self.path, 0o600)   # personal details (and the API key if no keychain)
@@ -163,7 +166,7 @@ class Store:
     def tracked_pairs(self) -> list[tuple[str, str]]:
         """(company, title) of everything already drafted or applied — used for dedup."""
         rows = self._q("SELECT company, title FROM jobs WHERE status IN "
-                       "('drafted','applied','interviewing','offer','rejected')")
+                       "('drafting','drafted','applied','interviewing','offer','rejected')")
         return [(r["company"], r["title"]) for r in rows]
 
     def counts(self) -> dict[str, int]:

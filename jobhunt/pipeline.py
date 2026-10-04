@@ -5,6 +5,7 @@ Nothing here submits anything. A package is a PDF + drafted answers for human re
 """
 from __future__ import annotations
 
+import queue
 import re
 import threading
 import time
@@ -206,6 +207,42 @@ def rerender(store: Store, job_id_: str, tailored: dict) -> dict:
     pkg.update(tailored=t.model_dump(), pages=page_count(pdf))
     store.update_job(job_id_, package=pkg)
     return store.job(job_id_)
+
+
+# --- Background drafting (review mode hands roles off and moves on) ------------------
+
+_drafts: "queue.Queue[tuple[str, str]]" = queue.Queue()
+_draft_worker: threading.Thread | None = None
+
+
+def _draft_loop(store: Store) -> None:
+    while True:
+        jid, prev = _drafts.get()
+        try:
+            draft(store, jid)
+        except Exception as e:
+            store.update_job(jid, status=prev, last_error=str(e)[:500])
+        finally:
+            _drafts.task_done()
+
+
+def queue_draft(store: Store, jid: str) -> dict:
+    """Mark a role as drafting and draft it on a single background worker."""
+    global _draft_worker
+    job = store.job(jid)
+    prev = job["status"] if job["status"] != "drafting" else "review"
+    store.update_job(jid, status="drafting", last_error="")
+    if _draft_worker is None or not _draft_worker.is_alive():
+        _draft_worker = threading.Thread(target=_draft_loop, args=(store,), daemon=True)
+        _draft_worker.start()
+    _drafts.put((jid, prev))
+    return store.job(jid)
+
+
+def recover_interrupted(store: Store) -> None:
+    """Roles left 'drafting' when the app quit go back to the inbox with a note."""
+    for j in store.jobs(["drafting"]):
+        store.update_job(j["id"], status="review", last_error="Drafting was interrupted. Try again.")
 
 
 # --- Full run -----------------------------------------------------------------------

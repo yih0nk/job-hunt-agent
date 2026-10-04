@@ -1,123 +1,163 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { api, type FitScore, type Job, type Profile, type Status, type Tailored } from '../api'
-import { ago, copy, ErrorBox, ResumePreview, ScoreNum, Spinner, StatusPill } from '../ui'
+import { ago, Avatar, copy, ErrorBox, money, ResumePreview, Spinner, StatusPill, Sticker, useToast } from '../ui'
 
 const PARTS: [keyof FitScore, string][] = [
   ['role_fit', 'Role fit'], ['skills', 'Skills'], ['eligibility', 'Eligibility'], ['level', 'Level'], ['preferences', 'Preferences'],
 ]
-const TRACK: Status[] = ['applied', 'interviewing', 'offer', 'rejected']
+const CURRENT_LABEL: Partial<Record<Status, string>> = {
+  new: 'Unscored', scored: 'Low fit', ineligible: 'Ineligible', drafting: 'Drafting…', drafted: 'Ready to submit',
+}
+const COST_LABEL: Record<string, string> = { score: 'scoring', tailor: 'resume', answers: 'answers' }
+// What the user can move a role to. "Applied" and later are only ever set here, by hand.
+const MOVES: [Status, string][] = [
+  ['review', 'In inbox'], ['applied', 'Applied'], ['interviewing', 'Interviewing'], ['offer', 'Offer'],
+  ['rejected', 'Rejected'], ['archived', 'Archived'],
+]
 
-export default function JobDetail({ id, onChange }: { id: string; onChange: () => void }) {
+export default function JobDetail({ id, tick = 0, onChange }: { id: string; tick?: number; onChange: () => void }) {
   const [job, setJob] = useState<Job | null>(null)
-  const [busy, setBusy] = useState<'' | 'score' | 'draft'>('')
+  const [busy, setBusy] = useState<'' | 'score'>('')
   const [error, setError] = useState<string | null>(null)
-  const [tab, setTab] = useState<'resume' | 'answers' | 'jd'>('resume')
+  const [toast, showToast] = useToast()
 
+  const reload = useCallback(() => api.job(id).then(setJob).catch(e => setError((e as Error).message)), [id])
+  useEffect(() => { setJob(null); setError(null); void reload() }, [id, reload])
+  useEffect(() => { if (tick) void reload() }, [tick, reload])
+  // Poll while a background draft is running.
   useEffect(() => {
-    setJob(null); setError(null)
-    api.job(id).then(setJob).catch(e => setError((e as Error).message))
-  }, [id])
+    if (job?.status !== 'drafting') return
+    const t = window.setInterval(async () => {
+      const j = await api.job(id)
+      setJob(j)
+      if (j.status !== 'drafting') { onChange(); if (j.package) showToast('Package ready') }
+    }, 3000)
+    return () => window.clearInterval(t)
+  }, [job?.status, id, onChange, showToast])
 
   if (!job) return <div className="detail-inner">{error ? <ErrorBox error={error} /> : <Spinner />}</div>
 
-  const act = async (kind: 'score' | 'draft') => {
-    setBusy(kind); setError(null)
-    try { setJob(await (kind === 'score' ? api.score(job.id) : api.draft(job.id))); onChange() }
-    catch (e) { setError((e as Error).message) } finally { setBusy('') }
+  const score = async () => {
+    setBusy('score'); setError(null)
+    try { setJob(await api.score(job.id)); onChange() } catch (e) { setError((e as Error).message) } finally { setBusy('') }
+  }
+  const draft = async () => {
+    setError(null)
+    try { setJob(await api.draftLater(job.id)); onChange() } catch (e) { setError((e as Error).message) }
   }
   const setStatus = async (status: Status) => {
     setJob(await api.patchJob(job.id, { status })); onChange()
+    showToast(status === 'applied' ? 'Marked applied. Nice.' : 'Moved')
   }
   const link = job.resolved_url || job.url
   const fit = job.score_detail
+  const drafting = job.status === 'drafting'
+  const statusOptions = MOVES.some(([s]) => s === job.status) ? MOVES
+    : [[job.status, CURRENT_LABEL[job.status] ?? job.status] as [Status, string], ...MOVES]
 
   return (
-    <div className="detail-inner stack">
-      <div>
-        <div className="row"><h1 className="grow">{job.title}</h1><StatusPill status={job.status} /></div>
-        <div className="row" style={{ marginTop: 4 }}>
-          <b>{job.company}</b>
-          <span className="muted">{[job.location, job.source, ago(job.age_days)].filter(Boolean).join(' · ')}</span>
+    <div className="detail-inner stack" style={{ gap: 18 }}>
+      <div className="hero">
+        <Avatar name={job.company} size="lg" />
+        <div className="grow" style={{ minWidth: 0 }}>
+          <h1>{job.title}</h1>
+          <div className="muted" style={{ marginTop: 3 }}>
+            <b style={{ color: 'var(--text)' }}>{job.company}</b>
+            {' · '}{[job.location, ago(job.age_days), job.source].filter(Boolean).join(' · ')}
+          </div>
         </div>
+        <Sticker score={job.score} ineligible={job.status === 'ineligible'} size="lg" />
       </div>
 
-      <div className="row">
-        {link && <a className="btn" href={link} target="_blank" rel="noreferrer">Open posting ↗</a>}
-        <button className="btn" disabled={!!busy} onClick={() => act('score')}>
-          {busy === 'score' ? <><Spinner /> Scoring…</> : fit ? 'Re-score' : 'Score fit'}</button>
-        <button className="btn primary" disabled={!!busy || job.status === 'ineligible'} onClick={() => act('draft')}>
-          {busy === 'draft' ? <><Spinner /> Drafting (1-2 min)…</> : job.package ? 'Redraft package' : 'Draft package'}</button>
+      {fit && <p className="summary">{fit.ineligible ? `Ineligible: ${fit.gate}` : fit.summary}</p>}
+
+      <div className="statusbar">
+        <StatusPill status={job.status} />
+        <select value={job.status} onChange={e => setStatus(e.target.value as Status)} aria-label="Move to">
+          {statusOptions.map(([s, label]) => <option key={s} value={s}>{label}</option>)}
+        </select>
         <span className="grow" />
-        {job.status !== 'archived'
-          ? <button className="btn" onClick={() => setStatus('archived')}>Archive</button>
-          : <button className="btn" onClick={() => setStatus(job.score !== null ? 'scored' : 'new')}>Unarchive</button>}
+        {link && <a className="btn" href={link} target="_blank" rel="noreferrer">Posting ↗</a>}
+        <button className="btn" disabled={!!busy || drafting} onClick={score}>
+          {busy === 'score' ? <><Spinner /> Scoring…</> : fit ? 'Re-score' : 'Score fit'}</button>
+        <button className="btn pop" disabled={drafting || job.status === 'ineligible'} onClick={draft}>
+          {drafting ? <><Spinner /> Drafting…</> : job.package ? 'Redraft' : 'Draft package'}</button>
       </div>
       <ErrorBox error={error} />
+      {job.last_error && !drafting && <div className="note small">Last draft failed: {job.last_error}</div>}
 
-      <div className="card row">
-        <span className="small muted">Tracker:</span>
-        {TRACK.map(s => (
-          <button key={s} className={`btn small ${job.status === s ? 'primary' : ''}`} onClick={() => setStatus(s)}>
-            {s === 'applied' ? 'I applied' : s[0].toUpperCase() + s.slice(1)}</button>
-        ))}
-        <span className="small muted">Only you mark applications as submitted.</span>
-      </div>
-
-      {fit && (
-        <div className="card">
-          <div className="row" style={{ marginBottom: 10 }}>
-            <h2 className="grow" style={{ margin: 0 }}>Fit</h2><ScoreNum score={job.score} />
-          </div>
-          {fit.ineligible && <div className="error" style={{ marginBottom: 10 }}>Ineligible: {fit.gate}</div>}
-          <p style={{ marginBottom: 12 }}>{fit.summary}</p>
-          <div className="bars">
-            {PARTS.map(([k, label]) => {
-              const s = fit[k] as { score: number; reason: string }
-              return (
-                <div key={k} style={{ display: 'contents' }}>
-                  <span className="small">{label}</span>
-                  <div className="bar"><div style={{ width: `${s.score}%` }} /></div>
-                  <span className="small" style={{ textAlign: 'right' }}>{s.score}</span>
-                  <div className="reason">{s.reason}</div>
-                </div>
-              )
-            })}
-          </div>
-          {fit.missing.length > 0 && (
-            <p className="small" style={{ marginTop: 8 }}><b>Missing:</b> {fit.missing.join(' · ')}</p>
+      {job.package ? (
+        <div className="pkg">
+          <ResumePanel job={job} onSaved={setJob} />
+          <AnswersPanel job={job} />
+        </div>
+      ) : (
+        <div className="empty-card">
+          {drafting ? (
+            <><h2><Spinner /> Drafting your package</h2>
+              <p className="muted">Tailoring a one-page resume and drafting answers. About a minute or two. You can keep browsing.</p></>
+          ) : (
+            <><h2>No package yet</h2>
+              <p className="muted" style={{ marginBottom: 14 }}>Draft a one-page resume tailored to this role, plus answers to its
+                application questions. Every line comes from your real experience, and nothing is submitted.</p>
+              <button className="btn pop" disabled={job.status === 'ineligible'} onClick={draft}>Draft package</button></>
           )}
         </div>
       )}
 
-      <div className="tabs">
-        <button className={tab === 'resume' ? 'on' : ''} onClick={() => setTab('resume')}>Tailored resume</button>
-        <button className={tab === 'answers' ? 'on' : ''} onClick={() => setTab('answers')}>Answers</button>
-        <button className={tab === 'jd' ? 'on' : ''} onClick={() => setTab('jd')}>Job description</button>
-      </div>
-
-      {tab === 'jd' && (job.description
-        ? <div className="jd">{job.description}</div>
-        : <p className="muted">Not fetched yet. It's fetched when the role is scored.</p>)}
-      {tab !== 'jd' && !job.package && (
-        <p className="muted">No package yet. "Draft package" tailors a one-page resume from your experience bank and
-          drafts answers to this posting's questions. Nothing is submitted.</p>
+      {fit && (
+        <details className="fold" open={!job.package}>
+          <summary>Why it scored {job.score ?? '–'}</summary>
+          <div className="fold-body">
+            <div className="bars">
+              {PARTS.map(([k, label]) => {
+                const s = fit[k] as { score: number; reason: string }
+                return (
+                  <div key={k} style={{ display: 'contents' }}>
+                    <span className="small" style={{ fontWeight: 700 }}>{label}</span>
+                    <div className="bar"><div className={s.score >= 75 ? '' : s.score >= 55 ? 'mid' : 'lo'} style={{ width: `${s.score}%` }} /></div>
+                    <span className="small mono" style={{ textAlign: 'right' }}>{s.score}</span>
+                    <div className="reason">{s.reason}</div>
+                  </div>
+                )
+              })}
+            </div>
+            {fit.missing.length > 0 && (
+              <div className="row" style={{ marginTop: 8, gap: 5 }}>
+                <span className="small" style={{ fontWeight: 700 }}>Missing</span>
+                {fit.missing.map(m => <span key={m} className="chip orange">{m}</span>)}
+              </div>
+            )}
+          </div>
+        </details>
       )}
-      {tab === 'resume' && job.package && <ResumeTab job={job} onSaved={setJob} />}
-      {tab === 'answers' && job.package && <AnswersTab job={job} />}
+
+      <details className="fold">
+        <summary>Job description</summary>
+        <div className="fold-body">
+          {job.description ? <div className="jd">{job.description}</div>
+            : <p className="muted">Not fetched yet. It's fetched when the role is scored.</p>}
+        </div>
+      </details>
 
       <Notes job={job} />
+      {!!job.cost?.total && (
+        <p className="small muted">Spent on this role: {money(job.cost.total)} (
+          {Object.entries(job.cost.by_kind).map(([k, v]) => `${COST_LABEL[k] ?? k} ${money(v)}`).join(' · ')})</p>
+      )}
+      {toast}
     </div>
   )
 }
 
-function ResumeTab({ job, onSaved }: { job: Job; onSaved: (j: Job) => void }) {
+function ResumePanel({ job, onSaved }: { job: Job; onSaved: (j: Job) => void }) {
   const pkg = job.package!
   const [t, setT] = useState<Tailored>(pkg.tailored)
   const [bank, setBank] = useState<Profile | null>(null)
   const [editing, setEditing] = useState(false)
   const [bust, setBust] = useState(pkg.created)
   const [busy, setBusy] = useState(false)
-  useEffect(() => { setT(pkg.tailored) }, [pkg])
+  useEffect(() => { setT(pkg.tailored); setBust(pkg.created) }, [pkg])
   useEffect(() => { if (editing && !bank) api.profile().then(setBank) }, [editing, bank])
   const title = (entryId: string) => bank?.experience.find(e => e.id === entryId)?.title ?? entryId
 
@@ -126,16 +166,17 @@ function ResumeTab({ job, onSaved }: { job: Job; onSaved: (j: Job) => void }) {
     try { const j = await api.saveTailored(job.id, t); onSaved(j); setBust(Date.now()); setEditing(false) } finally { setBusy(false) }
   }
   return (
-    <div className="stack">
-      <div className="row">
-        {pkg.pages > 1 && <span className="pill warn">{pkg.pages} pages. Trim some bullets.</span>}
+    <div className="stack" style={{ gap: 10 }}>
+      <div className="panel-title">
+        <h2>Resume</h2>
+        {pkg.pages > 1 ? <span className="chip red">{pkg.pages} pages</span> : <span className="chip mint">1 page</span>}
         <span className="grow" />
-        <button className="btn small" onClick={() => setEditing(e => !e)}>{editing ? 'Cancel edits' : 'Edit bullets'}</button>
-        <a className="btn small" href={api.pdfUrl(job.id, bust)} target="_blank" rel="noreferrer">Open PDF</a>
+        <button className="btn small" onClick={() => setEditing(e => !e)}>{editing ? 'Cancel' : 'Edit'}</button>
+        <a className="btn small" href={api.pdfUrl(job.id, bust)} target="_blank" rel="noreferrer">PDF ↗</a>
       </div>
       {pkg.tailored.notes.length > 0 && (
-        <div className="note small"><b>Notes from the tailor:</b>
-          <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>{pkg.tailored.notes.map((n, i) => <li key={i}>{n}</li>)}</ul></div>
+        <div className="note small">
+          <ul style={{ margin: 0, paddingLeft: 18 }}>{pkg.tailored.notes.map((n, i) => <li key={i}>{n}</li>)}</ul></div>
       )}
       {editing ? (
         <div className="card stack">
@@ -159,7 +200,7 @@ function ResumeTab({ job, onSaved }: { job: Job; onSaved: (j: Job) => void }) {
               ))}
             </div>
           ))}
-          <div><button className="btn primary" disabled={busy} onClick={save}>{busy ? <Spinner /> : 'Re-render PDF'}</button></div>
+          <div><button className="btn primary" disabled={busy} onClick={save}>{busy ? <Spinner /> : 'Re-render'}</button></div>
         </div>
       ) : (
         <ResumePreview pages={pkg.pages} src={page => api.pngUrl(job.id, page, bust)} />
@@ -168,31 +209,36 @@ function ResumeTab({ job, onSaved }: { job: Job; onSaved: (j: Job) => void }) {
   )
 }
 
-function AnswersTab({ job }: { job: Job }) {
+function AnswersPanel({ job }: { job: Job }) {
   const pkg = job.package!
   const [answers, setAnswers] = useState(pkg.answers.answers.map(a => a.answer))
   const [savedQ, setSavedQ] = useState<Set<number>>(new Set())
+  const [copied, setCopied] = useState<number | null>(null)
   useEffect(() => { setAnswers(pkg.answers.answers.map(a => a.answer)) }, [pkg])
   return (
-    <div className="stack">
-      <p className="small muted">{pkg.questions_source === 'ats'
-        ? "These are this posting's real application questions, pulled from the ATS."
-        : "This ATS doesn't publish its questions, so these are the usual ones. Check the form for others."}</p>
+    <div className="stack" style={{ gap: 10 }}>
+      <div className="panel-title">
+        <h2>Answers</h2>
+        <span className={`chip ${pkg.questions_source === 'ats' ? 'mint' : ''}`}>
+          {pkg.questions_source === 'ats' ? "posting's real questions" : 'common questions'}</span>
+      </div>
       {pkg.answers.gaps.length > 0 && (
         <div className="note small"><b>Only you can answer:</b>
           <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>{pkg.answers.gaps.map((g, i) => <li key={i}>{g}</li>)}</ul></div>
       )}
       <div className="card">
+        {pkg.answers.answers.length === 0 && <p className="muted">No questions to answer for this posting.</p>}
         {pkg.answers.answers.map((a, i) => (
           <div className="answer" key={i}>
             <div className="row q"><span className="grow">{a.question}</span>
-              {a.source === 'learned' && <span className="pill good">saved answer</span>}</div>
-            <textarea rows={Math.min(8, Math.max(2, Math.ceil(answers[i].length / 90)))} value={answers[i]}
+              {a.source === 'learned' && <span className="chip mint">saved</span>}</div>
+            <textarea rows={Math.min(8, Math.max(2, Math.ceil(answers[i].length / 70)))} value={answers[i]}
               onChange={e => { const n = [...answers]; n[i] = e.target.value; setAnswers(n) }} />
-            <div className="row" style={{ marginTop: 6 }}>
-              <button className="btn small" onClick={() => copy(answers[i])}>Copy</button>
+            <div className="row" style={{ marginTop: 8 }}>
+              <button className="btn small" onClick={() => { copy(answers[i]); setCopied(i); window.setTimeout(() => setCopied(null), 1200) }}>
+                {copied === i ? 'Copied' : 'Copy'}</button>
               {a.source !== 'learned' && (
-                <button className="btn small" disabled={savedQ.has(i)} onClick={async () => {
+                <button className="btn small ghost" disabled={savedQ.has(i)} onClick={async () => {
                   await api.learn({ question: a.question, answer: answers[i] })
                   setSavedQ(new Set(savedQ).add(i))
                 }}>{savedQ.has(i) ? 'Saved for reuse' : 'Save for reuse'}</button>

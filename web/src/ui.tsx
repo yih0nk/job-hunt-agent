@@ -1,5 +1,5 @@
-import { useState, type ReactNode } from 'react'
-import type { Status } from './api'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import type { Job, Status } from './api'
 
 export function TagInput({ value, onChange, placeholder }: {
   value: string[]; onChange: (v: string[]) => void; placeholder?: string
@@ -36,33 +36,81 @@ export function Field({ label, children, hint }: { label: string; children: Reac
     <label className="field">
       {label}
       {children}
-      {hint && <span className="small muted" style={{ fontWeight: 400 }}>{hint}</span>}
+      {hint && <span className="hint small">{hint}</span>}
     </label>
   )
 }
 
-export function ScoreNum({ score }: { score: number | null }) {
-  if (score === null || score === undefined) return <span className="score lo">–</span>
-  const cls = score >= 70 ? 'hi' : score >= 55 ? 'mid' : 'lo'
-  return <span className={`score ${cls}`}>{score}</span>
+export function scoreClass(score: number | null | undefined, ineligible = false): string {
+  if (ineligible) return 'bad'
+  if (score === null || score === undefined) return 'none'
+  return score >= 70 ? 'hi' : score >= 55 ? 'mid' : 'lo'
 }
 
-const STATUS_PILL: Record<Status, [string, string]> = {
+/** The tilted score sticker. */
+export function Sticker({ score, ineligible, size }: { score: number | null; ineligible?: boolean; size?: 'lg' | 'xl' }) {
+  const label = ineligible ? '✕' : score === null || score === undefined ? '?' : String(score)
+  return <span className={`sticker ${scoreClass(score, ineligible)} ${size ?? ''}`}
+    title={ineligible ? 'Ineligible' : score === null ? 'Not scored yet' : `Fit ${score}/100`}>{label}</span>
+}
+
+/** Back-compat for pages that still show a plain number. */
+export function ScoreNum({ score }: { score: number | null }) {
+  return <Sticker score={score} />
+}
+
+const POPS = ['yellow', 'pink', 'mint', 'lilac', 'orange', 'blue']
+function hash(s: string): number {
+  let h = 0
+  for (const c of s) h = (h * 31 + c.charCodeAt(0)) >>> 0
+  return h
+}
+
+/** Company initial on a colour picked from the name, so a company keeps its colour everywhere. */
+export function Avatar({ name, size }: { name: string; size?: 'lg' }) {
+  const colour = POPS[hash(name.toLowerCase()) % POPS.length]
+  const initial = (name.replace(/[^A-Za-z0-9]/g, '')[0] ?? '?').toUpperCase()
+  return <span className={`avatar ${size ?? ''}`} style={{ background: `var(--${colour})` }} aria-hidden="true">{initial}</span>
+}
+
+export function Kbd({ children }: { children: ReactNode }) {
+  return <span className="kbd">{children}</span>
+}
+
+const STATUS_CHIP: Record<Status, [string, string]> = {
   new: ['Unscored', ''],
   scored: ['Low fit', ''],
-  review: ['Good fit', 'accent'],
-  ineligible: ['Ineligible', 'bad'],
-  drafted: ['Ready to review', 'warn'],
-  applied: ['Applied', 'good'],
-  interviewing: ['Interviewing', 'good'],
-  offer: ['Offer', 'good'],
+  review: ['Good fit', 'lilac'],
+  ineligible: ['Ineligible', 'red'],
+  drafting: ['Drafting…', 'pink'],
+  drafted: ['Ready', 'yellow'],
+  applied: ['Applied', 'mint'],
+  interviewing: ['Interviewing', 'blue'],
+  offer: ['Offer', 'mint'],
   rejected: ['Rejected', ''],
   archived: ['Archived', ''],
 }
 
 export function StatusPill({ status }: { status: Status }) {
-  const [label, cls] = STATUS_PILL[status] ?? [status, '']
-  return <span className={`pill ${cls}`}>{label}</span>
+  const [label, cls] = STATUS_CHIP[status] ?? [status, '']
+  return <span className={`chip ${cls}`}>{label}</span>
+}
+
+/** Small chips summarising a role: place, freshness, the first gap. */
+export function JobChips({ job }: { job: Job }) {
+  const city = (job.location || '').split(/[,;·(]/)[0].trim()
+  const missing = job.score_detail?.missing?.[0]
+  const fresh = job.age_days !== null && job.age_days !== undefined && job.age_days < 2
+  return (
+    <div className="chips">
+      {city && <span className="chip">{city.length > 18 ? city.slice(0, 17) + '…' : city}</span>}
+      {job.age_days !== null && job.age_days !== undefined && (
+        <span className={`chip ${fresh ? 'pink' : ''}`}>{fresh ? 'new' : ago(job.age_days)}</span>)}
+      {job.status === 'drafted' && <span className="chip yellow">ready</span>}
+      {job.status === 'drafting' && <span className="chip pink">drafting…</span>}
+      {missing && job.status !== 'drafted' && <span className="chip orange">no {missing.length > 16 ? missing.slice(0, 15) + '…' : missing}</span>}
+    </div>
+  )
 }
 
 export function ErrorBox({ error }: { error: string | null }) {
@@ -84,7 +132,7 @@ export function ago(days: number | null | undefined): string {
 /** Resume pages as images: renders the same Typst output, and needs no PDF viewer. */
 export function ResumePreview({ pages, src }: { pages: number; src: (page: number) => string }) {
   return (
-    <div className="stack" style={{ gap: 8 }}>
+    <div className="stack" style={{ gap: 10 }}>
       {Array.from({ length: Math.max(1, pages) }, (_, i) => (
         <img key={i} className="page-img" src={src(i)} alt={`Resume page ${i + 1}`} />
       ))}
@@ -92,6 +140,41 @@ export function ResumePreview({ pages, src }: { pages: number; src: (page: numbe
   )
 }
 
+export function money(usd: number | null | undefined): string {
+  if (!usd) return '$0.00'
+  return usd < 0.01 ? '<$0.01' : `$${usd.toFixed(2)}`
+}
+
 export function copy(text: string) {
   void navigator.clipboard.writeText(text)
+}
+
+/** Single-key shortcuts, ignored while typing in a field. */
+export function useHotkeys(map: Record<string, () => void>, enabled = true) {
+  const ref = useRef(map)
+  ref.current = map
+  useEffect(() => {
+    if (!enabled) return
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return
+      const fn = ref.current[e.key]
+      if (fn) { e.preventDefault(); fn() }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [enabled])
+}
+
+/** A brief confirmation at the bottom of the screen. */
+export function useToast(): [ReactNode, (msg: string) => void] {
+  const [msg, setMsg] = useState<string | null>(null)
+  const timer = useRef<number | undefined>(undefined)
+  const show = (m: string) => {
+    setMsg(m)
+    window.clearTimeout(timer.current)
+    timer.current = window.setTimeout(() => setMsg(null), 1800)
+  }
+  return [msg ? <div className="toast" role="status">{msg}</div> : null, show]
 }

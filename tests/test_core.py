@@ -222,3 +222,23 @@ def test_cost_estimate_with_cache():
     u = {"input_tokens": 0, "output_tokens": 0, "cache_write": 1_000_000, "cache_read": 1_000_000}
     assert llm.estimate_cost("claude-opus-5", u) == pytest.approx(5 * 1.25 + 0.5)
     assert llm.estimate_cost("some-unknown-model", u) is None
+
+
+def test_api_key_moves_to_keychain(monkeypatch, store):
+    from jobhunt import keystore
+    vault = {}
+
+    class FakeKeyring:
+        def get_password(self, s, u): return vault.get((s, u))
+        def set_password(self, s, u, v): vault[(s, u)] = v
+        def delete_password(self, s, u): vault.pop((s, u), None)
+
+    store.put_doc("settings", Settings(api_key="sk-old"))       # saved before keychain support
+    monkeypatch.setattr(keystore, "_keyring", lambda: FakeKeyring())
+    keystore._cache.clear()
+    assert store.settings().api_key == "sk-old"                 # still readable
+    assert vault[(keystore.SERVICE, keystore.USER)] == "sk-old"  # moved to the keychain
+    raw = store.get_doc("settings", Settings)
+    assert raw.api_key == ""                                    # and gone from the database
+    store.put_settings(Settings(api_key="sk-new"))
+    assert store.settings().api_key == "sk-new" and store.get_doc("settings", Settings).api_key == ""

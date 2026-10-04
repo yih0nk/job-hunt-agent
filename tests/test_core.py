@@ -263,3 +263,15 @@ def test_long_resume_trimmed_to_one_page(monkeypatch, store):
     assert any("to fit one page" in n for n in pkg["tailored"]["notes"])
     entries = pkg["tailored"]["entries"]
     assert entries[0]["bullets"] and len(entries[0]["bullets"]) >= len(entries[-1]["bullets"])  # cut from the end
+
+
+def test_auto_run_schedule(monkeypatch, tmp_path):
+    monkeypatch.setenv("JOBHUNT_HOME", str(tmp_path))
+    from jobhunt.server import run_due
+    on = Settings(api_key="x", auto_run_hours=6)
+    assert run_due(on, None, 1000.0, running=False)                       # never ran
+    assert not run_due(on, {"started": 0.0}, 5 * 3600, running=False)     # too soon
+    assert run_due(on, {"started": 0.0}, 6 * 3600, running=False)         # due
+    assert not run_due(on, {"started": 0.0}, 9 * 3600, running=True)      # already running
+    assert not run_due(Settings(api_key="x"), None, 1e9, running=False)   # off by default
+    assert not run_due(Settings(auto_run_hours=6), None, 1e9, running=False)  # no key

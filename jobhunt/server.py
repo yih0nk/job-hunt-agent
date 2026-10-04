@@ -142,12 +142,13 @@ class SettingsView(BaseModel):
     has_key: bool
     key_hint: str
     model: str
+    score_model: str
     effort: str
 
 
 def _settings_view(s: Settings) -> SettingsView:
     return SettingsView(has_key=bool(s.api_key), key_hint=("…" + s.api_key[-4:]) if s.api_key else "",
-                        model=s.model, effort=s.effort)
+                        model=s.model, score_model=s.score_model, effort=s.effort)
 
 
 @app.get("/api/settings")
@@ -158,6 +159,7 @@ def get_settings() -> SettingsView:
 class SettingsIn(BaseModel):
     api_key: Optional[str] = None     # None = keep current
     model: Optional[str] = None
+    score_model: Optional[str] = None
     effort: Optional[str] = None
 
 
@@ -168,6 +170,8 @@ def put_settings(body: SettingsIn) -> SettingsView:
         s.api_key = body.api_key.strip()
     if body.model:
         s.model = body.model
+    if body.score_model:
+        s.score_model = body.score_model
     if body.effort in ("low", "medium", "high"):
         s.effort = body.effort
     store.put_doc("settings", s)

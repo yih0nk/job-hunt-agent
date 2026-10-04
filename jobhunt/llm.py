@@ -33,19 +33,20 @@ def _client(settings: Settings) -> anthropic.Anthropic:
 
 
 def _call(settings: Settings, system: list[dict], content: list[dict] | str,
-          out: type[T], max_tokens: int = 16000) -> T:
+          out: type[T], model: Optional[str] = None, max_tokens: int = 16000) -> T:
+    model = model or settings.model
     kwargs: dict = dict(
-        model=settings.model,
+        model=model,
         max_tokens=max_tokens,
         system=system,
         messages=[{"role": "user", "content": content}],
         output_format=out,
     )
     # Haiku 4.5 takes neither adaptive thinking nor effort; every newer model takes both.
-    if not settings.model.startswith("claude-haiku"):
+    if not model.startswith("claude-haiku"):
         kwargs["thinking"] = {"type": "adaptive"}
         kwargs["output_config"] = {"effort": settings.effort}
-    if settings.model.startswith(_FALLBACK_MODELS):
+    if model.startswith(_FALLBACK_MODELS):
         kwargs["betas"] = ["server-side-fallback-2026-07-01"]
         kwargs["fallbacks"] = "default"
     try:
@@ -66,13 +67,15 @@ def _call(settings: Settings, system: list[dict], content: list[dict] | str,
 
 
 def check_key(settings: Settings) -> None:
-    """Cheap validity check for the Settings screen."""
+    """Cheap validity check for the Settings screen (no tokens spent)."""
     try:
-        _client(settings).models.retrieve(settings.model)
+        client = _client(settings)
+        for m in {settings.model, settings.score_model or settings.model}:
+            client.models.retrieve(m)
     except anthropic.AuthenticationError as e:
         raise LLMError("The API key was rejected.") from e
     except anthropic.NotFoundError as e:
-        raise LLMError(f"Model {settings.model} is not available to this key.") from e
+        raise LLMError("One of the selected models is not available to this key.") from e
     except anthropic.APIConnectionError as e:
         raise LLMError("Could not reach the Anthropic API.") from e
 
@@ -213,7 +216,8 @@ summary and keep scores conservative."""
 
 def score(settings: Settings, profile: Profile, prefs: Preferences, job: dict) -> FitScore:
     system = [{"type": "text", "text": SCORE_SYSTEM}, _profile_block(profile, prefs)]
-    return _call(settings, system, _job_text(job), FitScore, max_tokens=8000)
+    return _call(settings, system, _job_text(job), FitScore,
+                 model=settings.score_model or settings.model, max_tokens=8000)
 
 
 def weighted_total(fit: FitScore, prefs: Preferences) -> int:

@@ -35,7 +35,16 @@ export type Preferences = {
   thresholds: { auto_draft: number; review: number }
   auto_draft: boolean
 }
-export type SettingsView = { has_key: boolean; key_hint: string; model: string; effort: string }
+export type SettingsView = {
+  has_key: boolean; key_hint: string; key_in_keychain: boolean
+  model: string; score_model: string; effort: string; auto_run_hours: number
+}
+export type SettingsPatch = Partial<Pick<SettingsView, 'model' | 'score_model' | 'effort' | 'auto_run_hours'>> & { api_key?: string }
+export type JobCost = { total: number; by_kind: Record<string, number> }
+export type Usage = {
+  today: number; last_30_days: number; all_time: number
+  by_kind_30d: Record<string, { calls: number; cost: number }>
+}
 
 export type SubScore = { score: number; reason: string }
 export type FitScore = {
@@ -49,13 +58,13 @@ export type Package = {
   created: number; resolved_url: string; pdf: string; pages: number; tailored: Tailored
   answers: { answers: DraftAnswer[]; gaps: string[] }; questions_source: 'ats' | 'generic'
 }
-export type Status = 'new' | 'scored' | 'review' | 'ineligible' | 'drafted' | 'applied'
+export type Status = 'new' | 'scored' | 'review' | 'ineligible' | 'drafting' | 'drafted' | 'applied'
   | 'interviewing' | 'offer' | 'rejected' | 'archived'
 export type Job = {
   id: string; company: string; title: string; location: string; url: string; source: string
   age_days: number | null; first_seen: number; description?: string; resolved_url: string
   status: Status; score: number | null; score_detail: FitScore | null; package: Package | null
-  notes: string; applied_at: number | null
+  notes: string; applied_at: number | null; cost?: JobCost; last_error?: string
 }
 export type Progress = {
   running: boolean; stage: string; done: number; total: number; message: string
@@ -110,8 +119,8 @@ export const api = {
   savePrefs: (p: Preferences) => req<Preferences>('PUT', '/api/preferences', p),
   presets: () => req<Preset[]>('GET', '/api/presets'),
   settings: () => req<SettingsView>('GET', '/api/settings'),
-  saveSettings: (s: { api_key?: string; model?: string; effort?: string }) =>
-    req<SettingsView>('PUT', '/api/settings', s),
+  saveSettings: (s: SettingsPatch) => req<SettingsView>('PUT', '/api/settings', s),
+  usage: () => req<Usage>('GET', '/api/usage'),
   testKey: () => req<{ ok: boolean }>('POST', '/api/settings/test'),
   run: (scan = true, score = true) => req<{ started: boolean; progress: Progress }>('POST', '/api/run', { scan, score }),
   progress: () => req<Progress>('GET', '/api/progress'),
@@ -122,6 +131,7 @@ export const api = {
   patchJob: (id: string, p: { status?: Status; notes?: string }) => req<Job>('PATCH', `/api/jobs/${id}`, p),
   score: (id: string) => req<Job>('POST', `/api/jobs/${id}/score`),
   draft: (id: string) => req<Job>('POST', `/api/jobs/${id}/draft`),
+  draftLater: (id: string) => req<Job>('POST', `/api/jobs/${id}/draft?background=true`),
   saveTailored: (id: string, t: Tailored) => req<Job>('PUT', `/api/jobs/${id}/tailored`, t),
   learn: (a: LearnedAnswer) => req<LearnedAnswer[]>('POST', '/api/learned', a),
   pdfUrl: (id: string, bust = 0) => `/api/jobs/${id}/resume.pdf?t=${encodeURIComponent(token())}&v=${bust}`,

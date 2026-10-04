@@ -19,7 +19,7 @@ It comes in two forms that share the same scanner and rules:
 |------|--------------|
 | **Scan** | Polls your sources, drops what's obviously out (wrong title, level, location, age, excluded company), and dedups against roles you've already drafted or applied to. |
 | **Score** | Fetches the job description and has Claude score fit 0-100 on five weighted parts (role fit, skills, eligibility, level, preferences), each with a one-line reason. Hard gates (work authorization, level, term, location, your dealbreakers) mark a role ineligible. |
-| **Draft** | Tailors a one-page resume from your **experience bank**. Every bullet must trace back to a real bullet you wrote; untraceable bullets are discarded in code, not just by prompt. Drafts answers to the posting's real questions where the ATS publishes them (Greenhouse), reusing your saved answers word for word. |
+| **Draft** | Tailors a one-page resume from your **experience bank** (if it runs long, the lowest-priority bullets are cut until it fits). Every bullet must trace back to a real bullet you wrote; untraceable bullets are discarded in code, not just by prompt. Drafts answers to the posting's real questions where the ATS publishes them (Greenhouse), reusing your saved answers word for word. |
 | **Review** | You edit bullets, re-render the PDF, copy answers, open the posting, and submit. Then you mark it *Applied* and track it through interviews on the board. |
 
 Sources: GitHub listing repos (SimplifyJobs, DereC4 and similar, both markdown and HTML tables),
@@ -58,13 +58,18 @@ unsigned; signing and notarization are up to you.
 ### Cost
 
 Scoring one role is one Claude call over the job description plus your profile. The profile is
-prompt-cached, so a scan that scores many roles pays for it roughly once. Drafting a package takes
-two larger calls. The default model is Claude Opus 5. Settings lets you switch to Sonnet 5 or
-Haiku 4.5 and lower the effort to spend less.
+prompt-cached, so a scan that scores many roles pays for it roughly once. Scoring uses Claude
+Sonnet 5 by default; drafting a package (two larger calls) uses Claude Opus 5. Both models and the
+effort level are adjustable in Settings, which also shows estimated spend today / last 30 days /
+all time, and each role shows what it cost.
+
+Settings can also run "find & score" automatically every few hours while the app is open.
 
 ### Where your data lives
 
-Everything (profile, jobs, packages, and your API key) is stored in one local folder:
+Your API key is kept in the system keychain (macOS Keychain, Windows Credential Manager, or
+Secret Service on Linux), falling back to the app database only where no keychain exists.
+Everything else (profile, jobs, packages) is stored in one local folder:
 `~/Library/Application Support/JobHuntAgent` on macOS, `%APPDATA%\JobHuntAgent` on Windows,
 `~/.local/share/job-hunt-agent` on Linux, or `$JOBHUNT_HOME` if set. The only thing that leaves
 your machine is the text sent to Claude for scoring and drafting. The local server binds to

@@ -275,3 +275,33 @@ def test_auto_run_schedule(monkeypatch, tmp_path):
     assert not run_due(on, {"started": 0.0}, 9 * 3600, running=True)      # already running
     assert not run_due(Settings(api_key="x"), None, 1e9, running=False)   # off by default
     assert not run_due(Settings(auto_run_hours=6), None, 1e9, running=False)  # no key
+
+
+def test_background_draft_queue(monkeypatch, store, profile):
+    store.put_doc("profile", profile)
+    store.put_settings(Settings(api_key="x"))
+    for jid in ("ok", "bad"):
+        store.insert_job({"id": jid, "company": jid, "title": "SWE"})
+        store.update_job(jid, description="Go", status="review")
+    calls = []
+
+    def fake_draft(st, jid):
+        calls.append(jid)
+        if jid == "bad":
+            raise llm.LLMError("boom")
+        st.update_job(jid, status="drafted")
+    monkeypatch.setattr(pipeline, "draft", fake_draft)
+    assert pipeline.queue_draft(store, "ok")["status"] == "drafting"
+    pipeline.queue_draft(store, "bad")
+    pipeline._drafts.join()
+    assert calls == ["ok", "bad"]
+    assert store.job("ok")["status"] == "drafted"
+    bad = store.job("bad")
+    assert bad["status"] == "review" and bad["last_error"] == "boom"
+
+
+def test_interrupted_drafts_recover(store):
+    store.insert_job({"id": "x", "company": "A", "title": "T"})
+    store.update_job("x", status="drafting")
+    pipeline.recover_interrupted(store)
+    assert store.job("x")["status"] == "review" and "interrupted" in store.job("x")["last_error"]

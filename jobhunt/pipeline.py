@@ -92,6 +92,7 @@ def _ensure_description(store: Store, job: dict) -> dict:
 
 
 def score_one(store: Store, job_id_: str) -> dict:
+    llm.current_job.set(job_id_)
     prefs, profile, settings = store.preferences(), store.profile(), store.settings()
     job = _ensure_description(store, store.job(job_id_))
     fit = llm.score(settings, profile, prefs, job)
@@ -141,6 +142,7 @@ def _slug(s: str) -> str:
 
 def draft(store: Store, job_id_: str) -> dict:
     """Tailor a resume and draft answers. Stops at a review-ready package."""
+    llm.current_job.set(job_id_)
     prefs, profile, settings = store.preferences(), store.profile(), store.settings()
     if not profile.experience:
         raise llm.LLMError("Your experience bank is empty. Import a resume in Profile first.")

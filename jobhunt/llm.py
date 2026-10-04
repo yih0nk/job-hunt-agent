@@ -7,8 +7,9 @@ roles pays for it once.
 from __future__ import annotations
 
 import base64
+import contextvars
 import json
-from typing import Optional, TypeVar
+from typing import Callable, Optional, TypeVar
 
 import anthropic
 from pydantic import BaseModel
@@ -20,6 +21,45 @@ T = TypeVar("T", bound=BaseModel)
 
 # Models that support server-side refusal fallbacks.
 _FALLBACK_MODELS = ("claude-opus-5", "claude-fable-5")
+
+# USD per million tokens: (input, output, cache read). Cache writes bill at 1.25x input.
+# Estimates for the in-app spend display; the Anthropic Console is the source of truth.
+PRICES = {
+    "claude-fable-5-1": (10.0, 50.0, 0.25),
+    "claude-fable-5": (10.0, 50.0, 1.0),
+    "claude-opus-5-5": (4.0, 20.0, 0.20),
+    "claude-opus-5": (5.0, 25.0, 0.50),
+    "claude-opus-4-8": (5.0, 25.0, 0.50),
+    "claude-sonnet-5": (2.0, 10.0, 0.20),
+    "claude-sonnet-4-6": (3.0, 15.0, 0.30),
+    "claude-haiku-4-5": (1.0, 5.0, 0.10),
+}
+
+# Set by the app: called after every API call with (job_id, kind, model, usage, cost).
+usage_hook: Optional[Callable[[Optional[str], str, str, dict, Optional[float]], None]] = None
+# The role a call is for, so spend can be shown per role.
+current_job: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("current_job", default=None)
+
+
+def estimate_cost(model: str, u: dict) -> Optional[float]:
+    price = PRICES.get(model)
+    if not price:
+        return None
+    pin, pout, pread = price
+    return (u["input_tokens"] * pin + u["cache_write"] * pin * 1.25
+            + u["cache_read"] * pread + u["output_tokens"] * pout) / 1e6
+
+
+def _record(kind: str, model: str, usage) -> None:
+    if usage is None or usage_hook is None:
+        return
+    u = {"input_tokens": usage.input_tokens or 0, "output_tokens": usage.output_tokens or 0,
+         "cache_write": getattr(usage, "cache_creation_input_tokens", 0) or 0,
+         "cache_read": getattr(usage, "cache_read_input_tokens", 0) or 0}
+    try:
+        usage_hook(current_job.get(), kind, model, u, estimate_cost(model, u))
+    except Exception:
+        pass  # never fail a call because spend logging failed
 
 
 class LLMError(RuntimeError):
@@ -33,7 +73,7 @@ def _client(settings: Settings) -> anthropic.Anthropic:
 
 
 def _call(settings: Settings, system: list[dict], content: list[dict] | str,
-          out: type[T], model: Optional[str] = None, max_tokens: int = 16000) -> T:
+          out: type[T], kind: str, model: Optional[str] = None, max_tokens: int = 16000) -> T:
     model = model or settings.model
     kwargs: dict = dict(
         model=model,
@@ -59,6 +99,7 @@ def _call(settings: Settings, system: list[dict], content: list[dict] | str,
         raise LLMError(f"Anthropic API error {e.status_code}: {e.message}") from e
     except anthropic.APIConnectionError as e:
         raise LLMError("Could not reach the Anthropic API. Check your connection.") from e
+    _record(kind, resp.model or model, resp.usage)
     if resp.stop_reason == "refusal":
         raise LLMError("The model declined this request.")
     if resp.stop_reason == "max_tokens" or resp.parsed_output is None:
@@ -170,7 +211,7 @@ def parse_resume(settings: Settings, data: bytes, filename: str) -> Profile:
         ]
     else:
         content = "Extract this resume:\n\n" + data.decode("utf-8", "replace")
-    r = _call(settings, [{"type": "text", "text": PARSE_SYSTEM}], content, _ParsedResume)
+    r = _call(settings, [{"type": "text", "text": PARSE_SYSTEM}], content, _ParsedResume, "parse")
     from .models import Bullet, Education, Link
     kinds = {"work", "project", "leadership", "research", "other"}
     return Profile(
@@ -216,7 +257,7 @@ summary and keep scores conservative."""
 
 def score(settings: Settings, profile: Profile, prefs: Preferences, job: dict) -> FitScore:
     system = [{"type": "text", "text": SCORE_SYSTEM}, _profile_block(profile, prefs)]
-    return _call(settings, system, _job_text(job), FitScore,
+    return _call(settings, system, _job_text(job), FitScore, "score",
                  model=settings.score_model or settings.model, max_tokens=8000)
 
 
@@ -253,7 +294,7 @@ Write in the candidate's voice (see candidate.voice)."""
 
 def tailor(settings: Settings, profile: Profile, prefs: Preferences, job: dict) -> TailoredResume:
     system = [{"type": "text", "text": TAILOR_SYSTEM}, _profile_block(profile, prefs)]
-    out = _call(settings, system, _job_text(job), TailoredResume)
+    out = _call(settings, system, _job_text(job), TailoredResume, "tailor")
     # Enforce the no-fabrication contract structurally: drop anything not traceable.
     bank = profile.bullet_index()
     entries = {e.id for e in profile.experience}
@@ -304,4 +345,4 @@ def answers(settings: Settings, profile: Profile, prefs: Preferences, job: dict,
     q = json.dumps(questions or [], indent=1)
     content = (f"{_job_text(job)}\n\n<learned_answers>\n{json.dumps(learned, indent=1)}\n</learned_answers>\n\n"
                f"<questions>\n{q}\n</questions>")
-    return _call(settings, system, content, AnswerSet)
+    return _call(settings, system, content, AnswerSet, "answers")

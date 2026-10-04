@@ -40,6 +40,19 @@ CREATE TABLE IF NOT EXISTS jobs (
   updated_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS jobs_status ON jobs(status);
+CREATE TABLE IF NOT EXISTS usage (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts REAL NOT NULL,
+  job_id TEXT,                       -- NULL for calls not tied to a role (resume import)
+  kind TEXT NOT NULL,                -- parse | score | tailor | answers
+  model TEXT NOT NULL,
+  input_tokens INTEGER NOT NULL,
+  output_tokens INTEGER NOT NULL,
+  cache_write INTEGER NOT NULL DEFAULT 0,
+  cache_read INTEGER NOT NULL DEFAULT 0,
+  cost REAL                          -- USD estimate; NULL when the model's price is unknown
+);
+CREATE INDEX IF NOT EXISTS usage_job ON usage(job_id);
 CREATE TABLE IF NOT EXISTS runs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   started REAL NOT NULL,
@@ -121,7 +134,11 @@ class Store:
 
     def job(self, job_id: str) -> Optional[dict]:
         rows = self._q("SELECT * FROM jobs WHERE id=?", (job_id,))
-        return _row(rows[0]) if rows else None
+        if not rows:
+            return None
+        d = _row(rows[0])
+        d["cost"] = self.job_cost(job_id)
+        return d
 
     def jobs(self, statuses: Optional[list[str]] = None, limit: int = 500) -> list[dict]:
         q, args = "SELECT * FROM jobs", []
@@ -140,6 +157,37 @@ class Store:
     def counts(self) -> dict[str, int]:
         return {r["status"]: r["n"] for r in self._q("SELECT status, COUNT(*) n FROM jobs GROUP BY status")}
 
+    # --- usage ------------------------------------------------------------------
+    def log_usage(self, job_id: Optional[str], kind: str, model: str, u: dict,
+                  cost: Optional[float]) -> None:
+        with _lock:
+            self.conn.execute(
+                "INSERT INTO usage(ts, job_id, kind, model, input_tokens, output_tokens, cache_write, "
+                "cache_read, cost) VALUES(?,?,?,?,?,?,?,?,?)",
+                (time.time(), job_id, kind, model, u.get("input_tokens", 0), u.get("output_tokens", 0),
+                 u.get("cache_write", 0), u.get("cache_read", 0), cost))
+            self.conn.commit()
+
+    def spend_since(self, ts: float) -> float:
+        return self._q("SELECT COALESCE(SUM(cost), 0) c FROM usage WHERE ts >= ?", (ts,))[0]["c"]
+
+    def job_cost(self, job_id: str) -> dict:
+        rows = self._q("SELECT kind, COALESCE(SUM(cost), 0) c FROM usage WHERE job_id=? GROUP BY kind", (job_id,))
+        by = {r["kind"]: round(r["c"], 4) for r in rows}
+        return {"total": round(sum(by.values()), 4), "by_kind": by}
+
+    def usage_summary(self) -> dict:
+        now = time.time()
+        day = time.mktime(time.localtime(now)[:3] + (0, 0, 0, 0, 0, -1))
+        rows = self._q("SELECT kind, COUNT(*) n, COALESCE(SUM(cost), 0) c FROM usage "
+                       "WHERE ts >= ? GROUP BY kind", (now - 30 * 86400,))
+        return {
+            "today": round(self.spend_since(day), 4),
+            "last_30_days": round(self.spend_since(now - 30 * 86400), 4),
+            "all_time": round(self.spend_since(0), 4),
+            "by_kind_30d": {r["kind"]: {"calls": r["n"], "cost": round(r["c"], 4)} for r in rows},
+        }
+
     # --- runs -------------------------------------------------------------------
     def start_run(self) -> int:
         with _lock:
@@ -148,6 +196,8 @@ class Store:
             return cur.lastrowid
 
     def finish_run(self, run_id: int, summary: dict) -> None:
+        started = self._q("SELECT started FROM runs WHERE id=?", (run_id,))[0]["started"]
+        summary = {**summary, "cost": round(self.spend_since(started), 4)}
         with _lock:
             self.conn.execute("UPDATE runs SET finished=?, summary=? WHERE id=?",
                               (time.time(), json.dumps(summary), run_id))

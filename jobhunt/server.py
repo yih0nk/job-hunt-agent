@@ -31,6 +31,7 @@ ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
 
 app = FastAPI(title="job-hunt-agent", docs_url=None, redoc_url=None)
 store = Store()
+llm.usage_hook = store.log_usage
 
 
 def web_dist() -> Path:
@@ -176,6 +177,11 @@ def put_settings(body: SettingsIn) -> SettingsView:
         s.effort = body.effort
     store.put_doc("settings", s)
     return _settings_view(s)
+
+
+@app.get("/api/usage")
+def usage():
+    return store.usage_summary()
 
 
 @app.post("/api/settings/test")

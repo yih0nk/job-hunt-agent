@@ -123,7 +123,8 @@ def _fit(score=80, ineligible=False):
 def test_score_request_and_weighting(monkeypatch, profile):
     captured = []
     monkeypatch.setattr(llm, "_client", lambda s: _mock_client(_fit(80), captured))
-    fit = llm.score(Settings(api_key="x"), profile, Preferences(), {"company": "A", "title": "T", "description": "JD"})
+    fit = llm.score(Settings(api_key="x", score_model="claude-opus-5"), profile, Preferences(),
+                    {"company": "A", "title": "T", "description": "JD"})
     assert isinstance(fit, FitScore)
     body = captured[0]
     assert body["model"] == "claude-opus-5"
@@ -139,14 +140,15 @@ def test_score_request_and_weighting(monkeypatch, profile):
 def test_no_fallbacks_on_other_models(monkeypatch, profile):
     captured = []
     monkeypatch.setattr(llm, "_client", lambda s: _mock_client(_fit(), captured))
-    llm.score(Settings(api_key="x", model="claude-sonnet-5"), profile, Preferences(), {"company": "A", "title": "T"})
+    llm.score(Settings(api_key="x"), profile, Preferences(), {"company": "A", "title": "T"})
+    assert captured[0]["model"] == "claude-sonnet-5"      # scoring defaults to the cheaper model
     assert "fallbacks" not in captured[0]
 
 
 def test_haiku_omits_thinking_and_effort(monkeypatch, profile):
     captured = []
     monkeypatch.setattr(llm, "_client", lambda s: _mock_client(_fit(), captured))
-    llm.score(Settings(api_key="x", model="claude-haiku-4-5"), profile, Preferences(), {"company": "A", "title": "T"})
+    llm.score(Settings(api_key="x", score_model="claude-haiku-4-5"), profile, Preferences(), {"company": "A", "title": "T"})
     assert "thinking" not in captured[0]
     assert "effort" not in captured[0].get("output_config", {})
     assert captured[0]["output_config"]["format"]["type"] == "json_schema"

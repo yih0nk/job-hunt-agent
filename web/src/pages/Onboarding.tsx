@@ -4,10 +4,11 @@ import { ErrorBox, Spinner } from '../ui'
 import { SearchForm, SourceList } from './Search'
 import { WorkAuthFields } from './Profile'
 
+// Per million tokens, input / output. Shown so the cost tradeoff is visible when picking.
 const MODELS = [
-  { id: 'claude-opus-5', label: 'Claude Opus 5 — best judgment (default)' },
-  { id: 'claude-sonnet-5', label: 'Claude Sonnet 5 — cheaper, still strong' },
-  { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5 — cheapest, rougher scores' },
+  { id: 'claude-opus-5', label: 'Claude Opus 5 · most careful · $5 / $25' },
+  { id: 'claude-sonnet-5', label: 'Claude Sonnet 5 · balanced · $2 / $10' },
+  { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5 · cheapest · $1 / $5' },
 ]
 export { MODELS }
 
@@ -60,12 +61,13 @@ function KeyStep({ next }: { next: () => void }) {
       <h2>1. Connect Claude</h2>
       <p className="muted">The app calls Claude with your own Anthropic API key. Create one at{' '}
         <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer">console.anthropic.com</a>.
-        It's stored only on this computer. Scoring a role costs a few cents; drafting a package costs more.</p>
+        It's kept in your system keychain on this computer. Roles are scored with Claude Sonnet 5 (about a cent or two
+        each); the model below writes your tailored resumes and answers. Both can be changed later in Settings.</p>
       <label className="field">API key
         <input type="password" value={key} onChange={e => setKey(e.target.value)}
           placeholder={hasKey ? 'Saved. Paste a new key to replace it.' : 'sk-ant-…'} autoComplete="off" />
       </label>
-      <label className="field">Model
+      <label className="field">Model for drafting packages
         <select value={model} onChange={e => setModel(e.target.value)}>
           {MODELS.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
         </select>

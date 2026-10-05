@@ -180,13 +180,18 @@ class SettingsView(BaseModel):
     effort: str
     auto_run_hours: int
     logos: bool
+    score_provider: str
+    draft_provider: str
+    local_url: str
+    local_model: str
 
 
 def _settings_view(s: Settings) -> SettingsView:
     return SettingsView(has_key=bool(s.api_key), key_hint=("…" + s.api_key[-4:]) if s.api_key else "",
                         key_in_keychain=bool(s.api_key) and keystore.get() == s.api_key,
                         model=s.model, score_model=s.score_model, effort=s.effort,
-                        auto_run_hours=s.auto_run_hours, logos=s.logos)
+                        auto_run_hours=s.auto_run_hours, logos=s.logos, score_provider=s.score_provider,
+                        draft_provider=s.draft_provider, local_url=s.local_url, local_model=s.local_model)
 
 
 @app.get("/api/settings")
@@ -201,6 +206,10 @@ class SettingsIn(BaseModel):
     effort: Optional[str] = None
     auto_run_hours: Optional[int] = None
     logos: Optional[bool] = None
+    score_provider: Optional[str] = None
+    draft_provider: Optional[str] = None
+    local_url: Optional[str] = None
+    local_model: Optional[str] = None
 
 
 @app.put("/api/settings")
@@ -218,8 +227,22 @@ def put_settings(body: SettingsIn) -> SettingsView:
         s.auto_run_hours = max(0, min(168, body.auto_run_hours))
     if body.logos is not None:
         s.logos = body.logos
+    for f in ("score_provider", "draft_provider"):
+        v = getattr(body, f)
+        if v in ("claude", "local"):
+            setattr(s, f, v)
+    if body.local_url:
+        s.local_url = body.local_url.strip()
+    if body.local_model is not None:
+        s.local_model = body.local_model.strip()
     store.put_settings(s)
     return _settings_view(s)
+
+
+@app.get("/api/local/models")
+def local_models():
+    """Models installed in the local Ollama, for the Settings picker."""
+    return _llm_errors(lambda: {"models": llm.local_models(store.settings())})
 
 
 @app.get("/api/usage")
@@ -319,7 +342,7 @@ def refetch_descriptions():
 def rescore(body: dict = Body(...)):
     """Re-score the given roles in the background (e.g. ones first scored without a description)."""
     ids = [i for i in body.get("ids", []) if store.job(i)]
-    if not store.settings().api_key:
+    if not store.settings().api_key and store.settings().score_provider != "local":
         raise HTTPException(400, "Add your Anthropic API key in Settings first.")
     def work():
         for i in ids:

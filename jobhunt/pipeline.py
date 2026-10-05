@@ -83,10 +83,10 @@ def scan(store: Store) -> dict:
 # --- Matcher ------------------------------------------------------------------------
 
 def _ensure_description(store: Store, job: dict) -> dict:
-    if job.get("description"):
+    if len((job.get("description") or "").strip()) >= jd.MIN_JD_CHARS:
         return job
     url = jd.resolve(job.get("url", ""))
-    posting = jd.fetch_posting(url)
+    posting = jd.fetch_posting(url, job.get("company", ""))
     store.update_job(job["id"], resolved_url=url, description=posting.get("text", ""))
     job.update(resolved_url=url, description=posting.get("text", ""))
     return job
@@ -97,6 +97,7 @@ def score_one(store: Store, job_id_: str) -> dict:
     prefs, profile, settings = store.preferences(), store.profile(), store.settings()
     job = _ensure_description(store, store.job(job_id_))
     fit = llm.score(settings, profile, prefs, job)
+    no_jd = len((job.get("description") or "").strip()) < jd.MIN_JD_CHARS
     total = llm.weighted_total(fit, prefs)
     if fit.ineligible:
         status = "ineligible"
@@ -104,8 +105,26 @@ def score_one(store: Store, job_id_: str) -> dict:
         status = "review"
     else:
         status = "scored"
-    store.update_job(job["id"], score=total, score_detail=fit.model_dump(), status=status)
+    store.update_job(job["id"], score=total, score_detail={**fit.model_dump(), "no_jd": no_jd}, status=status)
     return store.job(job["id"])
+
+
+def backfill_descriptions(store: Store) -> dict:
+    """Refetch job descriptions that came back empty (JS-only pages, unknown board tokens).
+    Free: no AI calls. Returns how many were fixed and which scored roles now deserve a re-score."""
+    todo = [j for j in store.jobs(limit=2000)
+            if j["status"] != "archived" and len((j.get("description") or "").strip()) < jd.MIN_JD_CHARS]
+    fixed, rescore = 0, []
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        for j, posting in zip(todo, pool.map(lambda j: jd.fetch_posting(jd.resolve(j["resolved_url"] or j["url"]), j["company"]), todo)):
+            if posting.get("text"):
+                store.update_job(j["id"], description=posting["text"], resolved_url=posting["url"])
+                fixed += 1
+                if j.get("score_detail"):
+                    # That score was made from the title alone; say so on the role.
+                    store.update_job(j["id"], score_detail={**j["score_detail"], "no_jd": True})
+                    rescore.append(j["id"])
+    return {"checked": len(todo), "fixed": fixed, "rescore": rescore}
 
 
 def score_new(store: Store, limit: int = 60) -> dict:
@@ -149,7 +168,7 @@ def draft(store: Store, job_id_: str) -> dict:
         raise llm.LLMError("Your experience bank is empty. Import a resume in Profile first.")
     job = _ensure_description(store, store.job(job_id_))
     url = job.get("resolved_url") or jd.resolve(job.get("url", ""))
-    posting = jd.fetch_posting(url) if url else {"questions": []}
+    posting = jd.fetch_posting(url, job.get("company", "")) if url else {"questions": []}
 
     tailored = llm.tailor(settings, profile, prefs, job)
     out_dir = packages_dir() / f"{_slug(job['company'])}-{_slug(job['title'])}-{job['id'][:6]}"

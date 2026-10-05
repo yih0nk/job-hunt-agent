@@ -71,6 +71,13 @@ export default function JobDetail({ id, tick = 0, onChange }: { id: string; tick
       </div>
 
       {fit && <p className="summary">{fit.ineligible ? `Ineligible: ${fit.gate}` : fit.summary}</p>}
+      {fit?.no_jd && (
+        <div className="note small row">
+          <span className="grow">This score came from the job title alone; the description couldn't be fetched at the time.
+            {(job.description?.length ?? 0) > 200 ? ' It has the description now.' : ''}</span>
+          <button className="btn small" disabled={!!busy} onClick={score}>{busy === 'score' ? <Spinner /> : 'Re-score'}</button>
+        </div>
+      )}
 
       <div className="statusbar">
         <StatusPill status={job.status} />
@@ -136,8 +143,8 @@ export default function JobDetail({ id, tick = 0, onChange }: { id: string; tick
       <details className="fold">
         <summary>Job description</summary>
         <div className="fold-body">
-          {job.description ? <div className="jd">{job.description}</div>
-            : <p className="muted">Not fetched yet. It's fetched when the role is scored.</p>}
+          {(job.description?.trim().length ?? 0) > 200 ? <div className="jd">{job.description}</div>
+            : <p className="muted">Couldn't fetch this posting's description{link ? <>. <a href={link} target="_blank" rel="noreferrer">Read it on the posting ↗</a></> : '.'}</p>}
         </div>
       </details>
 

@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import llm, logos, pipeline
+from . import jd
 from .jd import resolve
 from .filters import job_id
 from .models import LearnedAnswer, Preferences, Profile, Settings, Source
@@ -280,6 +281,54 @@ def add_job(j: NewJob):
     if j.description:
         store.update_job(jid, description=j.description, resolved_url=resolve(j.url))
     return store.job(jid)
+
+
+class FromUrl(BaseModel):
+    url: str
+
+
+@app.post("/api/jobs/from-url")
+def add_job_from_url(body: FromUrl):
+    """Paste any job link: resolve it, fetch the posting, fill in company/title/location."""
+    url = body.url.strip()
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+    resolved = resolve(url)
+    posting = jd.fetch_posting(resolved)
+    if not posting["text"] and posting.get("error"):
+        raise HTTPException(400, "Couldn't open that link. Check the URL, or add the role by hand.")
+    company, title, location = posting["company"], posting["title"], posting["location"]
+    if not (company and title):
+        meta = _llm_errors(lambda: llm.extract_job(store.settings(), resolved, posting.get("page_title", ""), posting["text"]))
+        company, title, location = company or meta.company, title or meta.title, location or meta.location
+    if not (company and title):
+        raise HTTPException(400, "Couldn't tell which company and role that link is for. Add it by hand instead.")
+    jid = job_id(company, title, location)
+    store.insert_job({"id": jid, "company": company, "title": title, "url": url, "location": location, "source": "link"})
+    store.update_job(jid, description=posting["text"], resolved_url=resolved)
+    return store.job(jid)
+
+
+@app.post("/api/jobs/refetch-descriptions")
+def refetch_descriptions():
+    """Free backfill of empty job descriptions; lists scored roles worth re-scoring."""
+    return pipeline.backfill_descriptions(store)
+
+
+@app.post("/api/jobs/rescore")
+def rescore(body: dict = Body(...)):
+    """Re-score the given roles in the background (e.g. ones first scored without a description)."""
+    ids = [i for i in body.get("ids", []) if store.job(i)]
+    if not store.settings().api_key:
+        raise HTTPException(400, "Add your Anthropic API key in Settings first.")
+    def work():
+        for i in ids:
+            try:
+                pipeline.score_one(store, i)
+            except Exception:
+                pass
+    threading.Thread(target=work, daemon=True).start()
+    return {"started": len(ids)}
 
 
 @app.get("/api/jobs/{jid}")

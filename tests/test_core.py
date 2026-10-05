@@ -383,3 +383,17 @@ def test_duplicate_bullets_are_removed_when_fitting(tmp_path, profile):
     pipeline.fit_page(profile, t, tmp_path / "d.pdf")
     assert t.entries[0].bullets == ["Cut latency 40% with a cache", "Built a Go billing service processing **2M rows/day**"] \
         or t.entries[0].bullets.count("Built an internal billing service in Go processing 2M rows/day") == 0
+
+
+def test_greenhouse_board_token_candidates():
+    from jobhunt import jd
+    assert jd._token_candidates("withwaymo", "🔥Waymo")[:2] == ["withwaymo", "waymo"]
+    assert "stripe" in jd._token_candidates("stripe", "Stripe")
+    assert jd._greenhouse("https://careers.withwaymo.com/jobs?gh_jid=8221795") == ("withwaymo", "8221795")
+
+
+def test_placeholder_descriptions_count_as_missing(monkeypatch):
+    from jobhunt import jd
+    monkeypatch.setattr(jd, "_fetch_posting", lambda url, hint="": {"url": url, "text": "-", "questions": [],
+                                                                     "title": "", "company": "", "location": ""})
+    assert jd.fetch_posting("https://x.wd5.myworkdayjobs.com/a/job/b")["text"] == ""

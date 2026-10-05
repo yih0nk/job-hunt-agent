@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, type AppState, type Preferences, type Preset, type Profile } from '../api'
 import { ErrorBox, Spinner } from '../ui'
+import Logo from '../Logo'
 import { SearchForm, SourceList } from './Search'
 import { WorkAuthFields } from './Profile'
 
@@ -19,7 +20,7 @@ export default function Onboarding({ state, restart, onDone, onRun }: {
   const [step, setStep] = useState(first)
   return (
     <div className="onboard">
-      <h1>Set up your job search</h1>
+      <div className="row" style={{ gap: 14, marginBottom: 6 }}><Logo size={56} /><h1>Set up your job search</h1></div>
       <p className="muted">Everything stays on this computer. The app finds roles, scores them against your
         background, and drafts tailored resumes and answers. You review and submit every application yourself.</p>
       <div className="steps">{[0, 1, 2, 3].map(i => <div key={i} className={i <= step ? 'on' : ''} />)}</div>

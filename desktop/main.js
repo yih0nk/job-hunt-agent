@@ -80,7 +80,10 @@ async function start() {
   }
 
   const origin = `http://127.0.0.1:${port}`
+  const icon = path.join(__dirname, 'resources', 'icon.png')
+  if (process.platform === 'darwin' && !app.isPackaged && app.dock) app.dock.setIcon(icon)  // dev runs show the real icon
   win = new BrowserWindow({
+    icon,
     width: 1320,
     height: 880,
     minWidth: 960,

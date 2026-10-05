@@ -16,7 +16,8 @@
     "productName": "Job Hunt Agent",
     "files": [
       "main.js",
-      "preload.js"
+      "preload.js",
+      "resources/icon.png"
     ],
     "extraResources": [
       {
@@ -39,7 +40,11 @@
       "target": [
         "AppImage"
       ]
-    }
+    },
+    "directories": {
+      "buildResources": "resources"
+    },
+    "icon": "resources/icon.png"
   },
   "devDependencies": {
     "electron": "^44.5.0",

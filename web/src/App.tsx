@@ -9,6 +9,7 @@ import ProfilePage from './pages/Profile'
 import SearchPage from './pages/Search'
 import SettingsPage from './pages/Settings'
 import { ErrorBox, money, Spinner } from './ui'
+import Logo from './Logo'
 
 type Page = 'inbox' | 'ready' | 'review' | 'board' | 'recap' | 'profile' | 'search' | 'settings'
 
@@ -81,7 +82,7 @@ export default function App() {
     <div className="app">
       <nav className="nav">
         <div className="brand">
-          <span className="brand-mark">J</span>
+          <Logo />
           <div><b>Job Hunt Agent</b><small>You review. You submit.</small></div>
         </div>
         {nav('inbox', 'Inbox', c.review)}

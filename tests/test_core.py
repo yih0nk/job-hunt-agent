@@ -318,3 +318,17 @@ def test_logo_image_checks():
     assert logos.clean_name("🔥Waymo") == "Waymo" and logos.clean_name("Acme (YC W24)") == "Acme"
     assert logos.domain_from_url("https://jobs.ashbyhq.com/ramp/x") is None
     assert logos.domain_from_url("https://careers.acme.com/jobs/1") == "acme.com"
+
+
+def test_bold_markup_renders_and_tolerates_stray_asterisks(tmp_path, profile):
+    profile.experience[0].bullets[0].text = "Cut prep from **30 minutes to seconds** for **2,000+ clients**"
+    profile.experience[0].bullets[1].text = "Odd ** marker with no partner and a*b"
+    out = render_pdf(build_data(profile), tmp_path / "b.pdf")
+    assert page_count(out) == 1
+
+
+def test_resume_groups_research_under_experience(profile):
+    profile.experience.append(Entry(id="r1", kind="research", title="RA", org="Lab",
+                                    bullets=[Bullet(id="rb", text="Did research")]))
+    sections = {s["title"]: [e["org"] for e in s["entries"]] for s in build_data(profile)["sections"]}
+    assert sections["Experience"] == ["Acme", "Lab"]

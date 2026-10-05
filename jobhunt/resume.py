@@ -10,8 +10,13 @@ import typst
 from .models import Profile, TailoredResume
 from .paths import resource_dir
 
-SECTION_TITLES = [("work", "Experience"), ("research", "Research"), ("project", "Projects"),
-                  ("leadership", "Leadership"), ("other", "Other")]
+# Work and research share one Experience section, as on most resumes.
+SECTIONS = [(("work", "research"), "Experience"), (("project",), "Projects"),
+            (("leadership",), "Leadership"), (("other",), "Other")]
+
+
+def _bare(url: str) -> str:
+    return re.sub(r"^https?://(www\.)?", "", url or "").rstrip("/")
 
 
 def build_data(profile: Profile, tailored: TailoredResume | None = None) -> dict:
@@ -26,16 +31,16 @@ def build_data(profile: Profile, tailored: TailoredResume | None = None) -> dict
         skills = profile.skills
         headline = profile.headline
     sections = []
-    for kind, title in SECTION_TITLES:
-        entries = [{"title": e.title, "org": e.org, "start": e.start, "end": e.end,
-                    "tech": e.tech, "bullets": bullets}
-                   for e, bullets in picked if e.kind == kind]
+    for kinds, title in SECTIONS:
+        entries = [{"kind": e.kind, "title": e.title, "org": e.org, "location": e.location,
+                    "start": e.start, "end": e.end, "url": _bare(e.url), "tech": e.tech, "bullets": bullets}
+                   for e, bullets in picked if e.kind in kinds]
         sections.append({"title": title, "entries": entries})
-    links = [l.url.replace("https://", "").replace("http://", "").rstrip("/") for l in profile.links if l.url]
+    links = [_bare(l.url) for l in profile.links if l.url]
     return {
         "name": profile.name or "Your Name",
         "headline": headline,
-        "contact": [profile.email, profile.phone, profile.location, *links],
+        "contact": [profile.phone, profile.email, *links],
         "education": [e.model_dump() for e in profile.education],
         "sections": sections,
         "skills": [g.model_dump() for g in skills],

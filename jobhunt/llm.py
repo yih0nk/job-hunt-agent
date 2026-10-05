@@ -35,6 +35,8 @@ PRICES = {
     "claude-haiku-4-5": (1.0, 5.0, 0.10),
 }
 
+WEB_SEARCH_USD = 0.01   # $10 per 1,000 searches
+
 # Set by the app: called after every API call with (job_id, kind, model, usage, cost).
 usage_hook: Optional[Callable[[Optional[str], str, str, dict, Optional[float]], None]] = None
 # The role a call is for, so spend can be shown per role.
@@ -56,8 +58,12 @@ def _record(kind: str, model: str, usage) -> None:
     u = {"input_tokens": usage.input_tokens or 0, "output_tokens": usage.output_tokens or 0,
          "cache_write": getattr(usage, "cache_creation_input_tokens", 0) or 0,
          "cache_read": getattr(usage, "cache_read_input_tokens", 0) or 0}
+    searches = getattr(getattr(usage, "server_tool_use", None), "web_search_requests", 0) or 0
+    cost = estimate_cost(model, u)
+    if cost is not None:
+        cost += searches * WEB_SEARCH_USD
     try:
-        usage_hook(current_job.get(), kind, model, u, estimate_cost(model, u))
+        usage_hook(current_job.get(), kind, model, u, cost)
     except Exception:
         pass  # never fail a call because spend logging failed
 
@@ -73,15 +79,13 @@ def _client(settings: Settings) -> anthropic.Anthropic:
 
 
 def _call(settings: Settings, system: list[dict], content: list[dict] | str,
-          out: type[T], kind: str, model: Optional[str] = None, max_tokens: int = 16000) -> T:
+          out: type[T], kind: str, model: Optional[str] = None, max_tokens: int = 16000,
+          tools: Optional[list[dict]] = None) -> T:
     model = model or settings.model
-    kwargs: dict = dict(
-        model=model,
-        max_tokens=max_tokens,
-        system=system,
-        messages=[{"role": "user", "content": content}],
-        output_format=out,
-    )
+    messages: list[dict] = [{"role": "user", "content": content}]
+    kwargs: dict = dict(model=model, max_tokens=max_tokens, system=system, output_format=out)
+    if tools:
+        kwargs["tools"] = tools
     # Haiku 4.5 takes neither adaptive thinking nor effort; every newer model takes both.
     if not model.startswith("claude-haiku"):
         kwargs["thinking"] = {"type": "adaptive"}
@@ -89,22 +93,27 @@ def _call(settings: Settings, system: list[dict], content: list[dict] | str,
     if model.startswith(_FALLBACK_MODELS):
         kwargs["betas"] = ["server-side-fallback-2026-07-01"]
         kwargs["fallbacks"] = "default"
-    try:
-        resp = _client(settings).beta.messages.parse(**kwargs)
-    except anthropic.AuthenticationError as e:
-        raise LLMError("The API key was rejected. Check it in Settings.") from e
-    except anthropic.RateLimitError as e:
-        raise LLMError("Rate limited by the Anthropic API. Try again in a minute.") from e
-    except anthropic.APIStatusError as e:
-        raise LLMError(f"Anthropic API error {e.status_code}: {e.message}") from e
-    except anthropic.APIConnectionError as e:
-        raise LLMError("Could not reach the Anthropic API. Check your connection.") from e
-    except ValidationError as e:  # the SDK validates the structured reply against `out`
-        raise LLMError("The model's response didn't match the expected format. Try again.") from e
-    _record(kind, resp.model or model, resp.usage)
+    for _ in range(5):  # server tools (web search) can pause a long turn; resume it
+        try:
+            resp = _client(settings).beta.messages.parse(messages=messages, **kwargs)
+        except anthropic.AuthenticationError as e:
+            raise LLMError("The API key was rejected. Check it in Settings.") from e
+        except anthropic.RateLimitError as e:
+            raise LLMError("Rate limited by the Anthropic API. Try again in a minute.") from e
+        except anthropic.APIStatusError as e:
+            raise LLMError(f"Anthropic API error {e.status_code}: {e.message}") from e
+        except anthropic.APIConnectionError as e:
+            raise LLMError("Could not reach the Anthropic API. Check your connection.") from e
+        except ValidationError as e:  # the SDK validates the structured reply against `out`
+            raise LLMError("The model's response didn't match the expected format. Try again.") from e
+        _record(kind, resp.model or model, resp.usage)
+        if resp.stop_reason != "pause_turn":
+            break
+        messages = messages + [{"role": "assistant", "content": [
+            b.model_dump(exclude_none=True, exclude={"parsed_output"}) for b in resp.content]}]
     if resp.stop_reason == "refusal":
         raise LLMError("The model declined this request.")
-    if resp.stop_reason == "max_tokens" or resp.parsed_output is None:
+    if resp.stop_reason in ("max_tokens", "pause_turn") or resp.parsed_output is None:
         raise LLMError("The model's response was cut off or malformed. Try again.")
     return resp.parsed_output
 

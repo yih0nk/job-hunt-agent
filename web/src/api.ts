@@ -64,7 +64,13 @@ export type Job = {
   id: string; company: string; title: string; location: string; url: string; source: string
   age_days: number | null; first_seen: number; description?: string; resolved_url: string
   status: Status; score: number | null; score_detail: FitScore | null; package: Package | null
-  notes: string; applied_at: number | null; cost?: JobCost; last_error?: string
+  notes: string; applied_at: number | null; cost?: JobCost; last_error?: string; outreach?: Outreach | null
+}
+export type Channel = { kind: string; value: string; source: string }
+export type Contact = { name: string; role: string; why: string; source_url: string; channels: Channel[] }
+export type Outreach = {
+  contacts: Contact[]; email_subject: string; email_body: string; linkedin_note: string; x_dm: string
+  notes: string[]; created: number
 }
 export type Progress = {
   running: boolean; stage: string; done: number; total: number; message: string
@@ -137,6 +143,7 @@ export const api = {
   fill: (id: string) => req<Job>('POST', `/api/jobs/${id}/fill`),
   refetchDescriptions: () => req<{ checked: number; fixed: number; rescore: string[] }>('POST', '/api/jobs/refetch-descriptions'),
   rescore: (ids: string[]) => req<{ started: number }>('POST', '/api/jobs/rescore', { ids }),
+  outreach: (id: string) => req<Job>('POST', `/api/jobs/${id}/outreach`),
   learn: (a: LearnedAnswer) => req<LearnedAnswer[]>('POST', '/api/learned', a),
   pdfUrl: (id: string, bust = 0) => `/api/jobs/${id}/resume.pdf?t=${encodeURIComponent(token())}&v=${bust}`,
   pngUrl: (id: string, page: number, bust = 0) => `/api/jobs/${id}/resume.png?page=${page}&t=${encodeURIComponent(token())}&v=${bust}`,

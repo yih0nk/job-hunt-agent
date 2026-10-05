@@ -380,6 +380,13 @@ def draft_job(jid: str, background: bool = False):
     return _llm_errors(lambda: pipeline.draft(store, jid))
 
 
+@app.post("/api/jobs/{jid}/outreach")
+def outreach_job(jid: str):
+    if not store.job(jid):
+        raise HTTPException(404, "No such job")
+    return _llm_errors(lambda: pipeline.outreach(store, jid))
+
+
 @app.post("/api/jobs/{jid}/fill")
 def fill_job(jid: str):
     j = store.job(jid)

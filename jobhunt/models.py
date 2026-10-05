@@ -78,6 +78,7 @@ class Profile(BaseModel):
     skills: list[SkillGroup] = []
     experience: list[Entry] = []
     voice: str = "Concise and specific. No em dashes. No buzzwords. Real experience only."
+    resume_rules: str = ""                # the candidate's own house style for every tailored resume
     learned_answers: list[LearnedAnswer] = []
 
     def bullet_index(self) -> dict[str, tuple[Entry, Bullet]]:

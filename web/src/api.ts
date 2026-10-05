@@ -17,7 +17,7 @@ export type Profile = {
   name: string; email: string; phone: string; location: string; links: Link[]
   headline: string; work_authorization: string; needs_sponsorship: 'no' | 'yes' | 'depends'
   sponsorship_note: string; education: Education[]; skills: SkillGroup[]
-  experience: Entry[]; voice: string; learned_answers: LearnedAnswer[]
+  experience: Entry[]; voice: string; resume_rules: string; learned_answers: LearnedAnswer[]
 }
 
 export type SourceKind = 'listing_repo' | 'github_issues' | 'greenhouse' | 'lever' | 'ashby' | 'early_career_radar'

@@ -150,6 +150,10 @@ class Settings(BaseModel):
     effort: Literal["low", "medium", "high"] = "medium"
     auto_run_hours: int = 0               # 0 = off; otherwise scan + score every N hours while open
     logos: bool = True                    # look up company logos (sends company names to Clearbit/Google)
+    score_provider: Literal["claude", "local"] = "claude"   # "local" = an Ollama model, $0
+    draft_provider: Literal["claude", "local"] = "claude"
+    local_url: str = "http://localhost:11434"
+    local_model: str = ""                 # e.g. "qwen3:14b"
 
 
 # --- LLM outputs (structured) -------------------------------------------------------

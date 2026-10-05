@@ -73,6 +73,11 @@ export type Outreach = {
   contacts: Contact[]; email_subject: string; email_body: string; linkedin_note: string; x_dm: string
   notes: string[]; created: number
 }
+export type Recap = {
+  since: number | null; roles_found: number; scored: number; good_fits: number; packages: number
+  applied: number; interviews: number; offers: number; spend: number
+  best: { company: string; title: string; score: number } | null; companies_applied: string[]
+}
 export type Progress = {
   running: boolean; stage: string; done: number; total: number; message: string
   errors: string[]; summary: Record<string, unknown>
@@ -128,6 +133,8 @@ export const api = {
   settings: () => req<SettingsView>('GET', '/api/settings'),
   saveSettings: (s: SettingsPatch) => req<SettingsView>('PUT', '/api/settings', s),
   usage: () => req<Usage>('GET', '/api/usage'),
+  recap: () => req<Recap>('GET', '/api/recap'),
+  roast: () => req<{ roast: string }>('POST', '/api/recap/roast'),
   testKey: () => req<{ ok: boolean }>('POST', '/api/settings/test'),
   run: (scan = true, score = true) => req<{ started: boolean; progress: Progress }>('POST', '/api/run', { scan, score }),
   progress: () => req<Progress>('GET', '/api/progress'),

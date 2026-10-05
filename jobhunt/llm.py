@@ -12,7 +12,7 @@ import json
 from typing import Callable, Optional, TypeVar
 
 import anthropic
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from .models import (AnswerSet, Entry, FitScore, Preferences, Profile, Settings,
                      SkillGroup, TailoredResume)
@@ -99,6 +99,8 @@ def _call(settings: Settings, system: list[dict], content: list[dict] | str,
         raise LLMError(f"Anthropic API error {e.status_code}: {e.message}") from e
     except anthropic.APIConnectionError as e:
         raise LLMError("Could not reach the Anthropic API. Check your connection.") from e
+    except ValidationError as e:  # the SDK validates the structured reply against `out`
+        raise LLMError("The model's response didn't match the expected format. Try again.") from e
     _record(kind, resp.model or model, resp.usage)
     if resp.stop_reason == "refusal":
         raise LLMError("The model declined this request.")
@@ -382,3 +384,31 @@ def answers(settings: Settings, profile: Profile, prefs: Preferences, job: dict,
     content = (f"{_job_text(job)}\n\n<learned_answers>\n{json.dumps(learned, indent=1)}\n</learned_answers>\n\n"
                f"<questions>\n{q}\n</questions>")
     return _call(settings, system, content, AnswerSet, "answers")
+
+
+# --- One-line bullets -----------------------------------------------------------------
+
+class ShortBullet(BaseModel):
+    key: str
+    text: str
+
+
+class ShortBullets(BaseModel):
+    bullets: list[ShortBullet]
+
+
+SHORTEN_SYSTEM = """These resume bullets wrap onto a second line. Rewrite each to fit on one line:
+at most the given number of characters (not counting ** markers).
+- Keep the headline metric (and its **bold**), the main tool, and the outcome.
+- Cut filler, secondary tools, and qualifiers first. Tighten verbs ("in order to" -> "to").
+- Never add anything that isn't already in the bullet. Never change what it claims.
+- If candidate.resume_rules explicitly allow this particular bullet to run two lines, return it
+  unchanged.
+Return every key you were given."""
+
+
+def shorten(settings: Settings, profile: Profile, prefs: Preferences, items: list[dict]) -> dict[str, str]:
+    """items: [{key, text, max_chars}] -> {key: new text}."""
+    system = [{"type": "text", "text": SHORTEN_SYSTEM}, _profile_block(profile, prefs)]
+    out = _call(settings, system, json.dumps(items, indent=1), ShortBullets, "tailor", max_tokens=6000)
+    return {b.key: b.text for b in out.bullets}

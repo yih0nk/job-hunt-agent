@@ -18,7 +18,7 @@ from . import jd, llm
 from .filters import job_id, passes, same_position
 from .models import TailoredResume
 from .paths import packages_dir
-from .resume import build_data, page_count, render_pdf
+from .resume import build_data, page_count, render_pdf, wrapped_bullets
 from .sources import fetch_source
 from .store import Store
 
@@ -154,16 +154,8 @@ def draft(store: Store, job_id_: str) -> dict:
     tailored = llm.tailor(settings, profile, prefs, job)
     out_dir = packages_dir() / f"{_slug(job['company'])}-{_slug(job['title'])}-{job['id'][:6]}"
     name = _slug(profile.name or "resume").replace("-", "_") or "resume"
-    pdf = render_pdf(build_data(profile, tailored), out_dir / f"{name}_resume.pdf")
-    pages = page_count(pdf)
-    trimmed = 0
-    while pages > 1 and trimmed < MAX_TRIM and _trim_one(tailored):
-        trimmed += 1
-        pdf = render_pdf(build_data(profile, tailored), pdf)
-        pages = page_count(pdf)
-    if trimmed:
-        tailored.notes.append(f"Cut {trimmed} lower-priority bullet{'s' if trimmed > 1 else ''} "
-                              "to fit one page. Restore any under Edit bullets.")
+    pdf, pages = fit_page(profile, tailored, out_dir / f"{name}_resume.pdf")
+    pdf, pages = one_line_bullets(settings, profile, prefs, tailored, pdf, pages)
 
     ans = llm.answers(settings, profile, prefs, job, posting.get("questions"))
     package = {
@@ -180,6 +172,154 @@ def draft(store: Store, job_id_: str) -> dict:
 
 
 MAX_TRIM = 20
+MAX_FILL_TRIES = 40
+
+
+def _order(t: TailoredResume, profile) -> None:
+    """Work, research, and leadership entries go back to the bank's (chronological) order;
+    projects keep the tailor's relevance order."""
+    rank = {e.id: i for i, e in enumerate(profile.experience)}
+    kind = {e.id: e.kind for e in profile.experience}
+    projects = [te for te in t.entries if kind.get(te.entry_id) == "project"]
+    others = sorted((te for te in t.entries if kind.get(te.entry_id) != "project"), key=lambda te: rank.get(te.entry_id, 1e9))
+    t.entries = others + projects
+
+
+def _fill_candidates(t: TailoredResume, profile) -> list[tuple[str, str, str]]:
+    """Bank bullets the resume doesn't use yet, as (entry_id, bullet_id, text): first the
+    unused bullets of entries already on the page, then whole entries that were left out."""
+    used = {i.strip() for te in t.entries for ids in te.source_bullet_ids for i in ids.split(",")}
+    present = {te.entry_id for te in t.entries}
+    on_page = [_words(b) for te in t.entries for b in te.bullets]
+    first, later = [], []
+    for e in profile.experience:
+        for b in e.bullets:
+            # Skip lines already on the page in reworded form, even if the tailor cited a
+            # different source id for them.
+            if b.id in used or not b.text.strip() or any(_similar(_words(b.text), w) for w in on_page):
+                continue
+            (first if e.id in present else later).append((e.id, b.id, b.text))
+    return first + later
+
+
+def _words(text: str) -> set[str]:
+    return {w for w in re.findall(r"[a-z0-9$%+.,]+", text.replace("**", "").lower()) if len(w) > 2}
+
+
+def _similar(a: set[str], b: set[str]) -> bool:
+    return bool(a and b) and len(a & b) / min(len(a), len(b)) >= 0.6
+
+
+def _dedupe(t: TailoredResume) -> None:
+    """Drop a bullet that repeats an earlier one (e.g. a profile line added back next to its
+    own reworded version). The first, usually tailored, version stays."""
+    seen: list[set[str]] = []
+    for te in t.entries:
+        keep_b, keep_ids = [], []
+        for b, ids in zip(te.bullets, te.source_bullet_ids):
+            w = _words(b)
+            if any(_similar(w, x) for x in seen):
+                continue
+            seen.append(w)
+            keep_b.append(b)
+            keep_ids.append(ids)
+        te.bullets, te.source_bullet_ids = keep_b, keep_ids
+    t.entries = [te for te in t.entries if te.bullets]
+
+
+def _add(t: TailoredResume, entry_id: str, bullet_id: str, text: str) -> None:
+    from .models import TailoredEntry
+    for te in t.entries:
+        if te.entry_id == entry_id:
+            te.bullets.append(text)
+            te.source_bullet_ids.append(bullet_id)
+            return
+    t.entries.append(TailoredEntry(entry_id=entry_id, bullets=[text], source_bullet_ids=[bullet_id]))
+
+
+def fit_page(profile, t: TailoredResume, pdf: Path) -> tuple[Path, int]:
+    """Make the tailored resume exactly one full page, deterministically and for free.
+    Fill: add back unused profile bullets (verbatim) while they still fit. Trim: if the
+    tailor overshot, drop the least relevant lines. Every added line is a real profile line,
+    so the no-fabrication guarantee holds."""
+    _dedupe(t)
+    _order(t, profile)
+    pdf = render_pdf(build_data(profile, t), pdf, spread=False)
+    pages = page_count(pdf)
+    added, misses = [], 0
+    if pages == 1:
+        for entry_id, bullet_id, text in _fill_candidates(t, profile)[:MAX_FILL_TRIES]:
+            trial = t.model_copy(deep=True)
+            _add(trial, entry_id, bullet_id, text)
+            _order(trial, profile)
+            render_pdf(build_data(profile, trial), pdf, spread=False)
+            if page_count(pdf) == 1:
+                t.entries = trial.entries
+                added.append(entry_id)
+                misses = 0
+            else:
+                misses += 1
+                if misses >= 3:   # three long lines in a row won't fit: the page is full
+                    break
+        pages = 1
+    trimmed = 0
+    while pages > 1 and trimmed < MAX_TRIM and _trim_one(t):
+        trimmed += 1
+        pdf = render_pdf(build_data(profile, t), pdf, spread=False)
+        pages = page_count(pdf)
+    pdf = render_pdf(build_data(profile, t), pdf)   # final render spreads spacing to fill the page
+    if added:
+        names = {e.id: (e.org if e.kind != "project" else e.title) for e in profile.experience}
+        back = {names.get(i, "") for i in added}
+        # The tailor's "left out X" notes are stale once X is back on the page.
+        t.notes = [n for n in t.notes if not any(b and b.lower() in n.lower() for b in back)]
+        t.notes.append(f"Added back {len(added)} line{'s' if len(added) > 1 else ''} from your profile to fill the page.")
+    if trimmed:
+        t.notes.append(f"Cut {trimmed} lower-priority bullet{'s' if trimmed > 1 else ''} to fit one page. "
+                       "Restore any under Edit.")
+    return pdf, pages
+
+
+def one_line_bullets(settings, profile, prefs, t: TailoredResume, pdf: Path, pages: int) -> tuple[Path, int]:
+    """House style: every bullet on one line. Measure each bullet in the real layout; send
+    the ones that wrap back to be reworded (never shrink the font), then re-fit the page."""
+    for _ in range(2):
+        wrapped = wrapped_bullets(build_data(profile, t))
+        if not wrapped:
+            break
+        items, where = [], {}
+        for key in wrapped:
+            entry_id, i = key.rsplit(":", 1)
+            for te in t.entries:
+                if te.entry_id == entry_id and int(i) < len(te.bullets):
+                    text = te.bullets[int(i)]
+                    plain = len(text.replace("**", ""))
+                    items.append({"key": key, "text": text, "max_chars": max(60, min(plain - 8, 125))})
+                    where[key] = (te, int(i))
+        try:
+            new = llm.shorten(settings, profile, prefs, items)
+        except llm.LLMError:
+            break
+        for key, text in new.items():
+            if key in where and text.strip():
+                te, i = where[key]
+                te.bullets[i] = text.strip()
+        pdf, pages = fit_page(profile, t, pdf)
+    left = wrapped_bullets(build_data(profile, t))
+    if left:
+        t.notes.append(f"{len(left)} bullet{'s' if len(left) > 1 else ''} still run two lines. Tighten under Edit if you like.")
+    return pdf, pages
+
+
+def refill(store: Store, job_id_: str) -> dict:
+    """Re-fit an existing package to one full page without another Claude call."""
+    job = store.job(job_id_)
+    pkg = job["package"]
+    t = TailoredResume.model_validate(pkg["tailored"])
+    pdf, pages = fit_page(store.profile(), t, Path(pkg["pdf"]))
+    pkg.update(tailored=t.model_dump(), pages=pages)
+    store.update_job(job_id_, package=pkg)
+    return store.job(job_id_)
 
 
 def _trim_one(t: TailoredResume) -> bool:

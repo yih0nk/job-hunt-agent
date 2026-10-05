@@ -49,7 +49,7 @@ export type Usage = {
 export type SubScore = { score: number; reason: string }
 export type FitScore = {
   ineligible: boolean; gate: string; role_fit: SubScore; skills: SubScore; eligibility: SubScore
-  level: SubScore; preferences: SubScore; summary: string; missing: string[]
+  level: SubScore; preferences: SubScore; summary: string; missing: string[]; no_jd?: boolean
 }
 export type TailoredEntry = { entry_id: string; bullets: string[]; source_bullet_ids: string[] }
 export type Tailored = { headline: string; entries: TailoredEntry[]; skills: SkillGroup[]; notes: string[] }
@@ -126,6 +126,7 @@ export const api = {
   progress: () => req<Progress>('GET', '/api/progress'),
   jobs: (statuses: Status[] = []) => req<Job[]>('GET', `/api/jobs?status=${statuses.join(',')}`),
   job: (id: string) => req<Job>('GET', `/api/jobs/${id}`),
+  addFromUrl: (url: string) => req<Job>('POST', '/api/jobs/from-url', { url }),
   addJob: (j: { company: string; title: string; url: string; location: string; description: string }) =>
     req<Job>('POST', '/api/jobs', j),
   patchJob: (id: string, p: { status?: Status; notes?: string }) => req<Job>('PATCH', `/api/jobs/${id}`, p),
@@ -134,6 +135,8 @@ export const api = {
   draftLater: (id: string) => req<Job>('POST', `/api/jobs/${id}/draft?background=true`),
   saveTailored: (id: string, t: Tailored) => req<Job>('PUT', `/api/jobs/${id}/tailored`, t),
   fill: (id: string) => req<Job>('POST', `/api/jobs/${id}/fill`),
+  refetchDescriptions: () => req<{ checked: number; fixed: number; rescore: string[] }>('POST', '/api/jobs/refetch-descriptions'),
+  rescore: (ids: string[]) => req<{ started: number }>('POST', '/api/jobs/rescore', { ids }),
   learn: (a: LearnedAnswer) => req<LearnedAnswer[]>('POST', '/api/learned', a),
   pdfUrl: (id: string, bust = 0) => `/api/jobs/${id}/resume.pdf?t=${encodeURIComponent(token())}&v=${bust}`,
   pngUrl: (id: string, page: number, bust = 0) => `/api/jobs/${id}/resume.png?page=${page}&t=${encodeURIComponent(token())}&v=${bust}`,

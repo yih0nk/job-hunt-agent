@@ -39,6 +39,8 @@ export default function Inbox({ tick, counts, onChange, onReview, startTab = 0 }
     return () => window.clearInterval(t)
   }, [jobs, load])
 
+  const [rescoring, setRescoring] = useState(false)
+  const noJd = (jobs ?? []).filter(j => j.score_detail?.no_jd && (j.description?.length ?? 1000) > 0)
   const shown = (jobs ?? []).filter(j => !q || `${j.company} ${j.title} ${j.location}`.toLowerCase().includes(q.toLowerCase()))
   const idx = shown.findIndex(j => j.id === sel)
   const current = idx >= 0 ? shown[idx] : null
@@ -55,6 +57,33 @@ export default function Inbox({ tick, counts, onChange, onReview, startTab = 0 }
     showToast(`Drafting ${current.company} in the background`)
     await load(); onChange()
   }
+  const [link, setLink] = useState('')
+  const [importing, setImporting] = useState(false)
+  const [importError, setImportError] = useState<string | null>(null)
+  const importLink = useCallback(async (raw: string) => {
+    const url = raw.trim()
+    if (!url || importing) return
+    setImporting(true); setImportError(null)
+    try {
+      const j = await api.addFromUrl(url)
+      setLink('')
+      showToast(`Added ${j.company}. Scoring…`)
+      setTab(2); setSel(j.id); onChange()
+      api.score(j.id).then(() => { void load(); onChange() }).catch(() => { /* shown on the role */ })
+    } catch (e) { setImportError((e as Error).message) } finally { setImporting(false) }
+  }, [importing, onChange, showToast, load])
+  // Paste a job URL anywhere in the inbox (outside a text field) to add it.
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const t = e.target as HTMLElement
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return
+      const text = e.clipboardData?.getData('text') ?? ''
+      if (/^https?:\/\/\S+$/.test(text.trim())) { e.preventDefault(); void importLink(text) }
+    }
+    window.addEventListener('paste', onPaste)
+    return () => window.removeEventListener('paste', onPaste)
+  }, [importLink])
+
   // Deliberately few: arrows to move, d to draft, r for review mode.
   useHotkeys({ ArrowDown: () => move(1), ArrowUp: () => move(-1), d: draft, r: onReview }, !adding)
 
@@ -63,11 +92,25 @@ export default function Inbox({ tick, counts, onChange, onReview, startTab = 0 }
     <div className="split">
       <div className="list" ref={listRef}>
         <div className="list-head">
-          <div className="row">
-            <input ref={filterRef} className="grow" style={{ width: 'auto' }} placeholder="Filter roles" value={q}
-              onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === 'Escape' && (e.currentTarget.blur())} />
-            <button className="btn small" onClick={() => setAdding(true)}>+ Add</button>
-          </div>
+          <form className="paste-link" onSubmit={e => { e.preventDefault(); void importLink(link) }}>
+            <input value={link} onChange={e => { setLink(e.target.value); setImportError(null) }}
+              placeholder="Paste any job link: Greenhouse, Workday, LinkedIn…" aria-label="Job link" />
+            <button className="btn small pop" disabled={importing || !link.trim()}>{importing ? <Spinner /> : 'Add'}</button>
+          </form>
+          {importError && <div className="small" style={{ color: 'var(--red)', marginTop: 6 }}>{importError}{' '}
+            <button className="btn link small" onClick={() => setAdding(true)}>Add by hand</button></div>}
+          <input ref={filterRef} style={{ marginTop: 8 }} placeholder="Filter roles" value={q}
+            onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === 'Escape' && (e.currentTarget.blur())} />
+          {noJd.length > 0 && (
+            <div className="note small" style={{ marginTop: 10 }}>
+              {noJd.length} role{noJd.length > 1 ? 's were' : ' was'} scored from the title alone.{' '}
+              <button className="btn link small" disabled={rescoring} onClick={async () => {
+                setRescoring(true)
+                try { await api.rescore(noJd.map(j => j.id)); showToast(`Re-scoring ${noJd.length} roles in the background`) }
+                finally { setRescoring(false) }
+              }}>Re-score them</button>
+            </div>
+          )}
           {reviewCount > 0 && (
             <button className="btn pop" style={{ width: '100%', justifyContent: 'center', marginTop: 12 }} onClick={onReview}>
               Review {reviewCount} good fit{reviewCount === 1 ? '' : 's'} one by one <Kbd>r</Kbd></button>

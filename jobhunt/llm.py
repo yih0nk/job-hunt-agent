@@ -35,6 +35,8 @@ PRICES = {
     "claude-haiku-4-5": (1.0, 5.0, 0.10),
 }
 
+WEB_SEARCH_USD = 0.01   # $10 per 1,000 searches
+
 # Set by the app: called after every API call with (job_id, kind, model, usage, cost).
 usage_hook: Optional[Callable[[Optional[str], str, str, dict, Optional[float]], None]] = None
 # The role a call is for, so spend can be shown per role.
@@ -56,8 +58,12 @@ def _record(kind: str, model: str, usage) -> None:
     u = {"input_tokens": usage.input_tokens or 0, "output_tokens": usage.output_tokens or 0,
          "cache_write": getattr(usage, "cache_creation_input_tokens", 0) or 0,
          "cache_read": getattr(usage, "cache_read_input_tokens", 0) or 0}
+    searches = getattr(getattr(usage, "server_tool_use", None), "web_search_requests", 0) or 0
+    cost = estimate_cost(model, u)
+    if cost is not None:
+        cost += searches * WEB_SEARCH_USD
     try:
-        usage_hook(current_job.get(), kind, model, u, estimate_cost(model, u))
+        usage_hook(current_job.get(), kind, model, u, cost)
     except Exception:
         pass  # never fail a call because spend logging failed
 
@@ -73,15 +79,13 @@ def _client(settings: Settings) -> anthropic.Anthropic:
 
 
 def _call(settings: Settings, system: list[dict], content: list[dict] | str,
-          out: type[T], kind: str, model: Optional[str] = None, max_tokens: int = 16000) -> T:
+          out: type[T], kind: str, model: Optional[str] = None, max_tokens: int = 16000,
+          tools: Optional[list[dict]] = None) -> T:
     model = model or settings.model
-    kwargs: dict = dict(
-        model=model,
-        max_tokens=max_tokens,
-        system=system,
-        messages=[{"role": "user", "content": content}],
-        output_format=out,
-    )
+    messages: list[dict] = [{"role": "user", "content": content}]
+    kwargs: dict = dict(model=model, max_tokens=max_tokens, system=system, output_format=out)
+    if tools:
+        kwargs["tools"] = tools
     # Haiku 4.5 takes neither adaptive thinking nor effort; every newer model takes both.
     if not model.startswith("claude-haiku"):
         kwargs["thinking"] = {"type": "adaptive"}
@@ -89,22 +93,27 @@ def _call(settings: Settings, system: list[dict], content: list[dict] | str,
     if model.startswith(_FALLBACK_MODELS):
         kwargs["betas"] = ["server-side-fallback-2026-07-01"]
         kwargs["fallbacks"] = "default"
-    try:
-        resp = _client(settings).beta.messages.parse(**kwargs)
-    except anthropic.AuthenticationError as e:
-        raise LLMError("The API key was rejected. Check it in Settings.") from e
-    except anthropic.RateLimitError as e:
-        raise LLMError("Rate limited by the Anthropic API. Try again in a minute.") from e
-    except anthropic.APIStatusError as e:
-        raise LLMError(f"Anthropic API error {e.status_code}: {e.message}") from e
-    except anthropic.APIConnectionError as e:
-        raise LLMError("Could not reach the Anthropic API. Check your connection.") from e
-    except ValidationError as e:  # the SDK validates the structured reply against `out`
-        raise LLMError("The model's response didn't match the expected format. Try again.") from e
-    _record(kind, resp.model or model, resp.usage)
+    for _ in range(5):  # server tools (web search) can pause a long turn; resume it
+        try:
+            resp = _client(settings).beta.messages.parse(messages=messages, **kwargs)
+        except anthropic.AuthenticationError as e:
+            raise LLMError("The API key was rejected. Check it in Settings.") from e
+        except anthropic.RateLimitError as e:
+            raise LLMError("Rate limited by the Anthropic API. Try again in a minute.") from e
+        except anthropic.APIStatusError as e:
+            raise LLMError(f"Anthropic API error {e.status_code}: {e.message}") from e
+        except anthropic.APIConnectionError as e:
+            raise LLMError("Could not reach the Anthropic API. Check your connection.") from e
+        except ValidationError as e:  # the SDK validates the structured reply against `out`
+            raise LLMError("The model's response didn't match the expected format. Try again.") from e
+        _record(kind, resp.model or model, resp.usage)
+        if resp.stop_reason != "pause_turn":
+            break
+        messages = messages + [{"role": "assistant", "content": [
+            b.model_dump(exclude_none=True, exclude={"parsed_output"}) for b in resp.content]}]
     if resp.stop_reason == "refusal":
         raise LLMError("The model declined this request.")
-    if resp.stop_reason == "max_tokens" or resp.parsed_output is None:
+    if resp.stop_reason in ("max_tokens", "pause_turn") or resp.parsed_output is None:
         raise LLMError("The model's response was cut off or malformed. Try again.")
     return resp.parsed_output
 
@@ -403,6 +412,73 @@ def extract_job(settings: Settings, url: str, page_title: str, text: str) -> Job
     content = f"URL: {url}\nPage title: {page_title}\n\n{text[:8000]}"
     return _call(settings, [{"type": "text", "text": EXTRACT_SYSTEM}], content, JobMeta, "extract",
                  model=settings.score_model or settings.model, max_tokens=2000)
+
+
+# --- Outreach -------------------------------------------------------------------------
+
+class Channel(BaseModel):
+    kind: str          # email | linkedin | x | other
+    value: str         # address or profile URL
+    source: str        # where this was found (URL); emails without a public source are not allowed
+
+
+class Contact(BaseModel):
+    name: str
+    role: str
+    why: str           # one line: why this person is a good contact for this role
+    source_url: str    # page that shows they work there in this capacity
+    channels: list[Channel]
+
+
+class OutreachPlan(BaseModel):
+    contacts: list[Contact]
+    email_subject: str
+    email_body: str
+    linkedin_note: str  # <= 300 characters (LinkedIn's connection-note limit)
+    x_dm: str           # <= 280 characters
+    notes: list[str]
+
+
+OUTREACH_SEARCHES = 15
+
+OUTREACH_SYSTEM = """You help a candidate follow up on a job application with a short, genuine note
+to a real person at the company. You never send anything; the candidate reviews and sends.
+
+Find people (use web search). You already have the posting, so don't search for it. Spend your
+searches on people, in this order, and stop once you have 4 credible contacts:
+  1. The university / early-career recruiter for this company (or this org within it):
+     e.g. "<company> university recruiter", "<company> early careers recruiter <team area>".
+  2. The likely hiring manager or team lead for this team: search the team's name and focus
+     from the posting ("<company> <team> engineering manager", "<company> <product> lead").
+  3. Engineers on that team who post publicly: LinkedIn, X, a personal site, a company
+     engineering blog post, or a conference talk about this work.
+Prefer people who are active publicly. Big companies have many recruiters; pick ones whose
+public profile mentions this team, area, or intern hiring.
+- Only professional information that is already public. For every person give source_url, the
+  page showing they work there in that capacity.
+- Channels: only addresses or profiles you actually found, each with the URL where you found
+  it. NEVER guess or construct an email address from a name pattern. If no email is published,
+  give the LinkedIn or X profile instead.
+- If you can't find anyone credible, return no contacts and say so in notes. Never invent one.
+
+Write the messages in candidate.voice, from the candidate's real experience only:
+- email_subject: plain, includes the role.
+- email_body: 4-6 sentences. Who they are, that they applied (or are applying) for this role,
+  one specific thing from their profile that fits the team's work, and a light ask (a quick
+  chat or a pointer to the right person). No flattery, no "I hope this finds you well".
+  Use {name} where the recipient's first name goes.
+- linkedin_note: at most 300 characters. x_dm: at most 280 characters, casual but professional.
+- notes: at most 2 short sentences the candidate should know (e.g. "No public recruiter for this
+  team; the team lead posts about hiring on X"). No apologies, no instructions."""
+
+
+def outreach(settings: Settings, profile: Profile, prefs: Preferences, job: dict, applied: bool) -> OutreachPlan:
+    system = [{"type": "text", "text": OUTREACH_SYSTEM}, _profile_block(profile, prefs)]
+    # Big companies need a few searches per person; 15 leaves room for 4 contacts (~$0.15 max).
+    tool = ({"type": "web_search_20250305", "name": "web_search", "max_uses": OUTREACH_SEARCHES} if settings.model.startswith("claude-haiku")
+            else {"type": "web_search_20260209", "name": "web_search", "max_uses": OUTREACH_SEARCHES})
+    status = "The candidate has already applied." if applied else "The candidate is about to apply."
+    return _call(settings, system, f"{_job_text(job)}\n\n{status}", OutreachPlan, "outreach", tools=[tool])
 
 
 # --- One-line bullets -----------------------------------------------------------------

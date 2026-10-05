@@ -190,6 +190,16 @@ def draft(store: Store, job_id_: str) -> dict:
     return store.job(job["id"])
 
 
+def outreach(store: Store, job_id_: str) -> dict:
+    """Find real contacts for a role and draft messages. Never sends anything."""
+    llm.current_job.set(job_id_)
+    job = _ensure_description(store, store.job(job_id_))
+    plan = llm.outreach(store.settings(), store.profile(), store.preferences(), job,
+                        applied=job["status"] in ("applied", "interviewing", "offer"))
+    store.update_job(job_id_, outreach={**plan.model_dump(), "created": time.time()})
+    return store.job(job_id_)
+
+
 MAX_TRIM = 20
 MAX_FILL_TRIES = 40
 

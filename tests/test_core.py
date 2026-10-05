@@ -397,3 +397,32 @@ def test_placeholder_descriptions_count_as_missing(monkeypatch):
     monkeypatch.setattr(jd, "_fetch_posting", lambda url, hint="": {"url": url, "text": "-", "questions": [],
                                                                      "title": "", "company": "", "location": ""})
     assert jd.fetch_posting("https://x.wd5.myworkdayjobs.com/a/job/b")["text"] == ""
+
+
+def test_outreach_resumes_paused_web_search(monkeypatch, profile):
+    plan = {"contacts": [{"name": "Dana Lee", "role": "University Recruiter", "why": "Runs intern hiring",
+                          "source_url": "https://acme.com/team", "channels": [
+                              {"kind": "linkedin", "value": "https://linkedin.com/in/dana", "source": "https://acme.com/team"}]}],
+            "email_subject": "SWE Intern application", "email_body": "Hi {name}, ...", "linkedin_note": "Hi Dana",
+            "x_dm": "Hi", "notes": []}
+    bodies, turn = [], iter(["pause_turn", "end_turn"])
+
+    def handler(request):
+        body = json.loads(request.content)
+        bodies.append(body)
+        stop = next(turn)
+        content = ([{"type": "server_tool_use", "id": "srv_1", "name": "web_search", "input": {"query": "Acme recruiter"}}]
+                   if stop == "pause_turn" else [{"type": "text", "text": json.dumps(plan)}])
+        return httpx2.Response(200, json={"id": "m", "type": "message", "role": "assistant", "model": body["model"],
+                                          "content": content, "stop_reason": stop, "stop_sequence": None,
+                                          "usage": {"input_tokens": 10, "output_tokens": 10,
+                                                    "server_tool_use": {"web_search_requests": 3}}})
+    client = anthropic.Anthropic(api_key="t", http_client=anthropic.DefaultHttpxClient(transport=httpx2.MockTransport(handler)))
+    monkeypatch.setattr(llm, "_client", lambda s: client)
+    costs = []
+    monkeypatch.setattr(llm, "usage_hook", lambda *a: costs.append(a[4]))
+    out = llm.outreach(Settings(api_key="x"), profile, Preferences(), {"company": "Acme", "title": "SWE"}, applied=True)
+    assert out.contacts[0].name == "Dana Lee"
+    assert bodies[0]["tools"][0]["type"] == "web_search_20260209"
+    assert bodies[1]["messages"][-1]["role"] == "assistant"            # paused turn sent back to continue
+    assert costs[0] > 0.03                                               # 3 searches at $0.01 counted

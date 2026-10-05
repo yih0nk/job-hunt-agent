@@ -78,6 +78,8 @@ class Store:
         cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(jobs)")}
         if "last_error" not in cols:   # added after v0.1
             self.conn.execute("ALTER TABLE jobs ADD COLUMN last_error TEXT DEFAULT ''")
+        if "outreach" not in cols:     # contacts + drafted messages (JSON)
+            self.conn.execute("ALTER TABLE jobs ADD COLUMN outreach TEXT")
         self.conn.commit()
         try:
             os.chmod(self.path, 0o600)   # personal details (and the API key if no keychain)
@@ -138,7 +140,7 @@ class Store:
     def update_job(self, job_id: str, **fields: Any) -> None:
         if not fields:
             return
-        for k in ("score_detail", "package"):
+        for k in ("score_detail", "package", "outreach"):
             if k in fields and not isinstance(fields[k], (str, type(None))):
                 fields[k] = json.dumps(fields[k])
         fields["updated_at"] = time.time()
@@ -229,7 +231,7 @@ class Store:
 
 def _row(r: sqlite3.Row) -> dict:
     d = dict(r)
-    for k in ("score_detail", "package"):
+    for k in ("score_detail", "package", "outreach"):
         if d.get(k):
             d[k] = json.loads(d[k])
     return d

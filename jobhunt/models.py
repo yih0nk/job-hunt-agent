@@ -173,6 +173,7 @@ class FitScore(BaseModel):
 
 class TailoredEntry(BaseModel):
     entry_id: str
+    heading: str = ""            # projects only: descriptor retitled toward the role; "" keeps the bank's
     bullets: list[str]         # rewritten bullet text
     source_bullet_ids: list[str]  # the bank bullets each rewrite is based on (same order)
 

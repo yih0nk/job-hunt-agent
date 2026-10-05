@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
-import Receipts from './Receipts'
 import { api, type FitScore, type Job, type Profile, type Status, type Tailored } from '../api'
+import Outreach from './Outreach'
+import Receipts from './Receipts'
 import { ago, Avatar, copy, ErrorBox, money, ResumePreview, Spinner, StatusPill, Sticker, useToast } from '../ui'
 
 const PARTS: [keyof FitScore, string][] = [
@@ -86,6 +87,8 @@ export default function JobDetail({ id, tick = 0, onChange }: { id: string; tick
         </select>
         <span className="grow" />
         {link && <a className="btn" href={link} target="_blank" rel="noreferrer">Posting ↗</a>}
+        <button className="btn" onClick={() => document.querySelector('.outreach')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>
+          Reach out</button>
         <button className="btn" disabled={!!busy || drafting} onClick={score}>
           {busy === 'score' ? <><Spinner /> Scoring…</> : fit ? 'Re-score' : 'Score fit'}</button>
         <button className="btn pop" disabled={drafting || job.status === 'ineligible'} onClick={draft}>
@@ -112,6 +115,8 @@ export default function JobDetail({ id, tick = 0, onChange }: { id: string; tick
           )}
         </div>
       )}
+
+      <Outreach job={job} onUpdate={setJob} />
 
       {fit && (
         <details className="fold" open={!job.package}>

@@ -305,3 +305,16 @@ def test_interrupted_drafts_recover(store):
     store.update_job("x", status="drafting")
     pipeline.recover_interrupted(store)
     assert store.job("x")["status"] == "review" and "interrupted" in store.job("x")["last_error"]
+
+
+def test_logo_image_checks():
+    from jobhunt import logos
+    png = lambda px: b"\x89PNG\r\n\x1a\n" + b"\0" * 8 + px.to_bytes(4, "big") * 2 + b"\0" * 20
+    assert logos._good(png(180), "image/png") == "png"
+    assert logos._good(png(32), "image/png") is None            # too small to look sharp
+    assert logos._good(png(32), "image/png", min_px=16) == "png"  # ok as a last resort
+    assert logos._good(b'<svg xmlns="http://www.w3.org/2000/svg"></svg>', "image/svg+xml") == "svg"
+    assert logos._good(b"<html>not an image</html>", "text/html") is None
+    assert logos.clean_name("🔥Waymo") == "Waymo" and logos.clean_name("Acme (YC W24)") == "Acme"
+    assert logos.domain_from_url("https://jobs.ashbyhq.com/ramp/x") is None
+    assert logos.domain_from_url("https://careers.acme.com/jobs/1") == "acme.com"

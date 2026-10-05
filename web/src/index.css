@@ -143,6 +143,8 @@ input:focus, select:focus, textarea:focus { outline: none; box-shadow: var(--sha
 .avatar { width: 34px; height: 34px; border: var(--border); border-radius: var(--radius); display: grid; place-items: center;
   font-weight: 700; color: var(--on-pop); flex: none; font-size: 15px; }
 .avatar.lg { width: 48px; height: 48px; font-size: 21px; box-shadow: 2px 2px 0 var(--ink); }
+.avatar.logo { background: #fff; overflow: hidden; padding: 4px; }
+.avatar.logo img { width: 100%; height: 100%; object-fit: scale-down; display: block; }  /* never upscale small icons */
 
 /* --- inbox ----------------------------------------------------------------------- */
 .split { display: grid; grid-template-columns: minmax(300px, 360px) 1fr; height: 100vh; }

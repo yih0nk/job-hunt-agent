@@ -148,6 +148,7 @@ class Settings(BaseModel):
     score_model: str = "claude-sonnet-5"  # scoring runs on every new role, so it defaults cheaper
     effort: Literal["low", "medium", "high"] = "medium"
     auto_run_hours: int = 0               # 0 = off; otherwise scan + score every N hours while open
+    logos: bool = True                    # look up company logos (sends company names to Clearbit/Google)
 
 
 # --- LLM outputs (structured) -------------------------------------------------------

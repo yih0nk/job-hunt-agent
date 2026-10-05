@@ -37,9 +37,9 @@ export type Preferences = {
 }
 export type SettingsView = {
   has_key: boolean; key_hint: string; key_in_keychain: boolean
-  model: string; score_model: string; effort: string; auto_run_hours: number
+  model: string; score_model: string; effort: string; auto_run_hours: number; logos: boolean
 }
-export type SettingsPatch = Partial<Pick<SettingsView, 'model' | 'score_model' | 'effort' | 'auto_run_hours'>> & { api_key?: string }
+export type SettingsPatch = Partial<Pick<SettingsView, 'model' | 'score_model' | 'effort' | 'auto_run_hours' | 'logos'>> & { api_key?: string }
 export type JobCost = { total: number; by_kind: Record<string, number> }
 export type Usage = {
   today: number; last_30_days: number; all_time: number
@@ -136,6 +136,8 @@ export const api = {
   learn: (a: LearnedAnswer) => req<LearnedAnswer[]>('POST', '/api/learned', a),
   pdfUrl: (id: string, bust = 0) => `/api/jobs/${id}/resume.pdf?t=${encodeURIComponent(token())}&v=${bust}`,
   pngUrl: (id: string, page: number, bust = 0) => `/api/jobs/${id}/resume.png?page=${page}&t=${encodeURIComponent(token())}&v=${bust}`,
+  logoUrl: (company: string, url = '') =>
+    `/api/logo?company=${encodeURIComponent(company)}&url=${encodeURIComponent(url)}&t=${encodeURIComponent(token())}`,
   basePngUrl: (page: number, bust = 0) => `/api/profile/resume.png?page=${page}&t=${encodeURIComponent(token())}&v=${bust}`,
   baseResumeUrl: (bust = 0) => `/api/profile/resume.pdf?t=${encodeURIComponent(token())}&v=${bust}`,
 }

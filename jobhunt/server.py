@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import llm, pipeline
+from . import llm, logos, pipeline
 from .jd import resolve
 from .filters import job_id
 from .models import LearnedAnswer, Preferences, Profile, Settings, Source
@@ -178,13 +178,14 @@ class SettingsView(BaseModel):
     score_model: str
     effort: str
     auto_run_hours: int
+    logos: bool
 
 
 def _settings_view(s: Settings) -> SettingsView:
     return SettingsView(has_key=bool(s.api_key), key_hint=("…" + s.api_key[-4:]) if s.api_key else "",
                         key_in_keychain=bool(s.api_key) and keystore.get() == s.api_key,
                         model=s.model, score_model=s.score_model, effort=s.effort,
-                        auto_run_hours=s.auto_run_hours)
+                        auto_run_hours=s.auto_run_hours, logos=s.logos)
 
 
 @app.get("/api/settings")
@@ -198,6 +199,7 @@ class SettingsIn(BaseModel):
     score_model: Optional[str] = None
     effort: Optional[str] = None
     auto_run_hours: Optional[int] = None
+    logos: Optional[bool] = None
 
 
 @app.put("/api/settings")
@@ -213,6 +215,8 @@ def put_settings(body: SettingsIn) -> SettingsView:
         s.effort = body.effort
     if body.auto_run_hours is not None:
         s.auto_run_hours = max(0, min(168, body.auto_run_hours))
+    if body.logos is not None:
+        s.logos = body.logos
     store.put_settings(s)
     return _settings_view(s)
 
@@ -362,6 +366,21 @@ def job_png(jid: str, page: int = 0):
 @app.get("/api/profile/resume.png")
 def base_png(page: int = 0):
     return _png(render_png(build_data(store.profile())), page)
+
+
+@app.get("/api/logo")
+def logo(company: str, url: str = ""):
+    """Company logo PNG, cached on disk; 404 means 'use the letter avatar'."""
+    if not store.settings().logos:
+        raise HTTPException(404)
+    found = logos.logo(company, url)
+    if not found:
+        raise HTTPException(404, headers={"Cache-Control": "max-age=3600"})
+    img, media_type = found
+    # SVGs come from third-party sites: never let one run script if opened directly.
+    return Response(img, media_type=media_type, headers={
+        "Cache-Control": "max-age=604800", "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",
+        "X-Content-Type-Options": "nosniff"})
 
 
 @app.post("/api/learned")

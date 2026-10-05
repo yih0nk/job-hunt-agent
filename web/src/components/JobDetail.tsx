@@ -58,7 +58,7 @@ export default function JobDetail({ id, tick = 0, onChange }: { id: string; tick
   return (
     <div className="detail-inner stack" style={{ gap: 18 }}>
       <div className="hero">
-        <Avatar name={job.company} size="lg" />
+        <Avatar name={job.company} url={job.resolved_url || job.url} size="lg" />
         <div className="grow" style={{ minWidth: 0 }}>
           <h1>{job.title}</h1>
           <div className="muted" style={{ marginTop: 3 }}>

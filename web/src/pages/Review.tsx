@@ -101,7 +101,7 @@ export default function Review({ onChange, onExit }: { onChange: () => void; onE
           <div className={`review-card ${out}`} key={job.id}>
             <Sticker score={job.score} size="xl" />
             <div className="row" style={{ gap: 12 }}>
-              <Avatar name={job.company} size="lg" />
+              <Avatar name={job.company} url={job.resolved_url || job.url} size="lg" />
               <div>
                 <div style={{ fontWeight: 700, fontSize: 16 }}>{job.company}</div>
                 <div className="muted small">{[job.location, ago(job.age_days), job.source].filter(Boolean).join(' · ')}</div>

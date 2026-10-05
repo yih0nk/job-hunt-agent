@@ -102,7 +102,7 @@ export default function Inbox({ tick, counts, onChange, onReview, startTab = 0 }
         {shown.map(j => (
           <div key={j.id} className={`item ${sel === j.id && !adding ? 'on' : ''}`}
             onClick={() => { setSel(j.id); setAdding(false) }}>
-            <Avatar name={j.company} />
+            <Avatar name={j.company} url={j.resolved_url || j.url} />
             <div className="grow" style={{ minWidth: 0 }}>
               <div className="t">{j.company}</div>
               <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{j.title}</div>

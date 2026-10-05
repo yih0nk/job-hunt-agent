@@ -109,6 +109,24 @@ def score_one(store: Store, job_id_: str) -> dict:
     return store.job(job["id"])
 
 
+def backfill_descriptions(store: Store) -> dict:
+    """Refetch job descriptions that came back empty (JS-only pages, unknown board tokens).
+    Free: no AI calls. Returns how many were fixed and which scored roles now deserve a re-score."""
+    todo = [j for j in store.jobs(limit=2000)
+            if j["status"] != "archived" and len((j.get("description") or "").strip()) < jd.MIN_JD_CHARS]
+    fixed, rescore = 0, []
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        for j, posting in zip(todo, pool.map(lambda j: jd.fetch_posting(jd.resolve(j["resolved_url"] or j["url"]), j["company"]), todo)):
+            if posting.get("text"):
+                store.update_job(j["id"], description=posting["text"], resolved_url=posting["url"])
+                fixed += 1
+                if j.get("score_detail"):
+                    # That score was made from the title alone; say so on the role.
+                    store.update_job(j["id"], score_detail={**j["score_detail"], "no_jd": True})
+                    rescore.append(j["id"])
+    return {"checked": len(todo), "fixed": fixed, "rescore": rescore}
+
+
 def score_new(store: Store, limit: int = 60) -> dict:
     pending = store.jobs(["new"], limit=limit)
     progress.stage, progress.total, progress.done = "score", len(pending), 0

@@ -96,6 +96,15 @@ export function StatusPill({ status }: { status: Status }) {
   return <span className={`chip ${cls}`}>{label}</span>
 }
 
+/** "No Kubernetes experience" -> "no Kubernetes experience": exactly one "no", so gap phrases
+ *  from the scorer read the same whether or not they start with a negation. Casing is kept
+ *  because gaps are often proper nouns (TensorFlow, AWS). */
+export function gapLabel(m: string, max = 28): string {
+  const core = m.trim().replace(/^(no|not|lacks?|missing|limited)\b[:\s]*/i, '')
+  const text = 'no ' + core
+  return text.length > max ? text.slice(0, max - 1) + '…' : text
+}
+
 /** Small chips summarising a role: place, freshness, the first gap. */
 export function JobChips({ job }: { job: Job }) {
   const city = (job.location || '').split(/[,;·(]/)[0].trim()
@@ -108,7 +117,7 @@ export function JobChips({ job }: { job: Job }) {
         <span className={`chip ${fresh ? 'pink' : ''}`}>{fresh ? 'new' : ago(job.age_days)}</span>)}
       {job.status === 'drafted' && <span className="chip yellow">ready</span>}
       {job.status === 'drafting' && <span className="chip pink">drafting…</span>}
-      {missing && job.status !== 'drafted' && <span className="chip orange">no {missing.length > 16 ? missing.slice(0, 15) + '…' : missing}</span>}
+      {missing && job.status !== 'drafted' && <span className="chip orange" title={missing}>{gapLabel(missing, 22)}</span>}
     </div>
   )
 }

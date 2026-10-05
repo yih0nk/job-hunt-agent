@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, type FitScore, type Job } from '../api'
-import { ago, Avatar, ErrorBox, Kbd, Spinner, Sticker, useHotkeys, useToast } from '../ui'
+import { ago, Avatar, ErrorBox, gapLabel, Kbd, Spinner, Sticker, useHotkeys, useToast } from '../ui'
 
 const PARTS: [keyof FitScore, string][] = [
   ['role_fit', 'role'], ['skills', 'skills'], ['eligibility', 'eligibility'], ['level', 'level'], ['preferences', 'prefs'],
@@ -116,7 +116,7 @@ export default function Review({ onChange, onExit }: { onChange: () => void; onE
                     const v = (job.score_detail![k] as { score: number }).score
                     return <span key={k} className={`chip ${v >= 75 ? 'mint' : v >= 55 ? 'yellow' : 'red'}`}>{label} {v}</span>
                   })}
-                  {job.score_detail.missing.slice(0, 3).map(m => <span key={m} className="chip orange">no {m}</span>)}
+                  {job.score_detail.missing.slice(0, 3).map(m => <span key={m} className="chip orange" title={m}>{gapLabel(m, 40)}</span>)}
                 </div>
                 <details className="fold" style={{ marginTop: 18, boxShadow: 'none' }}>
                   <summary>Why this score</summary>

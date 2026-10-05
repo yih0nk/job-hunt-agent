@@ -331,6 +331,14 @@ def draft_job(jid: str, background: bool = False):
     return _llm_errors(lambda: pipeline.draft(store, jid))
 
 
+@app.post("/api/jobs/{jid}/fill")
+def fill_job(jid: str):
+    j = store.job(jid)
+    if not j or not j.get("package"):
+        raise HTTPException(404, "No package for this job")
+    return pipeline.refill(store, jid)
+
+
 @app.put("/api/jobs/{jid}/tailored")
 def edit_tailored(jid: str, tailored: dict = Body(...)):
     j = store.job(jid)

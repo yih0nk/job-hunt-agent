@@ -133,6 +133,7 @@ export const api = {
   draft: (id: string) => req<Job>('POST', `/api/jobs/${id}/draft`),
   draftLater: (id: string) => req<Job>('POST', `/api/jobs/${id}/draft?background=true`),
   saveTailored: (id: string, t: Tailored) => req<Job>('PUT', `/api/jobs/${id}/tailored`, t),
+  fill: (id: string) => req<Job>('POST', `/api/jobs/${id}/fill`),
   learn: (a: LearnedAnswer) => req<LearnedAnswer[]>('POST', '/api/learned', a),
   pdfUrl: (id: string, bust = 0) => `/api/jobs/${id}/resume.pdf?t=${encodeURIComponent(token())}&v=${bust}`,
   pngUrl: (id: string, page: number, bust = 0) => `/api/jobs/${id}/resume.png?page=${page}&t=${encodeURIComponent(token())}&v=${bust}`,

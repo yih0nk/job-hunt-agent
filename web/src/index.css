@@ -261,3 +261,15 @@ details.fold > .fold-body { padding: 0 16px 16px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 9px 16px;
   border-radius: var(--radius); font-weight: 700; z-index: 50; box-shadow: 3px 3px 0 var(--yellow); }
+
+/* --- resume receipts -------------------------------------------------------------- */
+.receipt-head { display: flex; gap: 12px; align-items: center; border: var(--border); border-radius: var(--radius);
+  background: var(--mint); color: var(--on-pop); padding: 10px 14px; box-shadow: var(--shadow); }
+.receipt-head .muted { color: var(--on-pop); opacity: 0.75; }
+.receipts { padding: 6px 16px; }
+.receipt { padding: 10px 0; border-top: 1.5px dashed var(--line); }
+.receipt:first-child { border-top: none; }
+.receipt-new { font-size: 13px; line-height: 1.5; margin: 2px 0 4px; }
+.receipt-src { font-size: 12px; color: var(--muted); line-height: 1.5; padding-left: 10px; border-left: 3px solid var(--lilac); }
+.w-add { background: var(--yellow); color: var(--on-pop); padding: 0 2px; border-radius: 2px; }
+.w-del { text-decoration: line-through; text-decoration-color: var(--red); text-decoration-thickness: 2px; }

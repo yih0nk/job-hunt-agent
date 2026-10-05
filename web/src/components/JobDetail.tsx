@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import Receipts from './Receipts'
 import { api, type FitScore, type Job, type Profile, type Status, type Tailored } from '../api'
 import { ago, Avatar, copy, ErrorBox, money, ResumePreview, Spinner, StatusPill, Sticker, useToast } from '../ui'
 
@@ -154,7 +155,8 @@ function ResumePanel({ job, onSaved }: { job: Job; onSaved: (j: Job) => void }) 
   const pkg = job.package!
   const [t, setT] = useState<Tailored>(pkg.tailored)
   const [bank, setBank] = useState<Profile | null>(null)
-  const [editing, setEditing] = useState(false)
+  const [mode, setMode] = useState<'preview' | 'receipts' | 'edit'>('preview')
+  const editing = mode === 'edit'
   const [bust, setBust] = useState(pkg.created)
   const [busy, setBusy] = useState(false)
   useEffect(() => { setT(pkg.tailored); setBust(pkg.created) }, [pkg])
@@ -163,7 +165,7 @@ function ResumePanel({ job, onSaved }: { job: Job; onSaved: (j: Job) => void }) 
 
   const save = async () => {
     setBusy(true)
-    try { const j = await api.saveTailored(job.id, t); onSaved(j); setBust(Date.now()); setEditing(false) } finally { setBusy(false) }
+    try { const j = await api.saveTailored(job.id, t); onSaved(j); setBust(Date.now()); setMode('preview') } finally { setBusy(false) }
   }
   return (
     <div className="stack" style={{ gap: 10 }}>
@@ -171,14 +173,22 @@ function ResumePanel({ job, onSaved }: { job: Job; onSaved: (j: Job) => void }) 
         <h2>Resume</h2>
         {pkg.pages > 1 ? <span className="chip red">{pkg.pages} pages</span> : <span className="chip mint">1 page</span>}
         <span className="grow" />
-        <button className="btn small" onClick={() => setEditing(e => !e)}>{editing ? 'Cancel' : 'Edit'}</button>
+        <button className="btn small" disabled={busy} title="Add back unused lines from your profile until the page is full. Free, no AI call."
+          onClick={async () => { setBusy(true); try { const j = await api.fill(job.id); onSaved(j); setBust(Date.now()) } finally { setBusy(false) } }}>
+          {busy ? <Spinner /> : 'Fill page'}</button>
         <a className="btn small" href={api.pdfUrl(job.id, bust)} target="_blank" rel="noreferrer">PDF ↗</a>
+      </div>
+      <div className="tabs" style={{ marginTop: 0 }}>
+        {(['preview', 'receipts', 'edit'] as const).map(m => (
+          <button key={m} className={mode === m ? 'on' : ''} onClick={() => { if (m === 'edit') setT(pkg.tailored); setMode(m) }}>
+            {m === 'preview' ? 'Preview' : m === 'receipts' ? 'Receipts' : 'Edit'}</button>
+        ))}
       </div>
       {pkg.tailored.notes.length > 0 && (
         <div className="note small">
           <ul style={{ margin: 0, paddingLeft: 18 }}>{pkg.tailored.notes.map((n, i) => <li key={i}>{n}</li>)}</ul></div>
       )}
-      {editing ? (
+      {mode === 'receipts' ? <Receipts tailored={pkg.tailored} /> : editing ? (
         <div className="card stack">
           <label className="field">Headline<input value={t.headline} onChange={e => setT({ ...t, headline: e.target.value })} /></label>
           {t.entries.map((en, i) => (

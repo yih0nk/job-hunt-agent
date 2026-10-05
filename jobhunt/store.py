@@ -174,6 +174,27 @@ class Store:
     def counts(self) -> dict[str, int]:
         return {r["status"]: r["n"] for r in self._q("SELECT status, COUNT(*) n FROM jobs GROUP BY status")}
 
+    def recap(self, review_threshold: int) -> dict:
+        """Season stats for the shareable recap card."""
+        q = lambda sql, *a: self._q(sql, a)[0][0]
+        best = self._q("SELECT company, title, score FROM jobs WHERE score IS NOT NULL ORDER BY score DESC LIMIT 1")
+        applied = [r["company"] for r in self._q(
+            "SELECT DISTINCT company FROM jobs WHERE applied_at IS NOT NULL OR status IN "
+            "('applied','interviewing','offer','rejected') ORDER BY COALESCE(applied_at, updated_at)")]
+        return {
+            "since": q("SELECT MIN(first_seen) FROM jobs"),
+            "roles_found": q("SELECT COUNT(*) FROM jobs"),
+            "scored": q("SELECT COUNT(*) FROM jobs WHERE score IS NOT NULL"),
+            "good_fits": q("SELECT COUNT(*) FROM jobs WHERE score >= ?", review_threshold),
+            "packages": q("SELECT COUNT(*) FROM jobs WHERE package IS NOT NULL"),
+            "applied": len(applied),
+            "interviews": q("SELECT COUNT(*) FROM jobs WHERE status IN ('interviewing','offer')"),
+            "offers": q("SELECT COUNT(*) FROM jobs WHERE status = 'offer'"),
+            "spend": round(self.spend_since(0), 2),
+            "best": dict(best[0]) if best else None,
+            "companies_applied": applied,
+        }
+
     # --- usage ------------------------------------------------------------------
     def log_usage(self, job_id: Optional[str], kind: str, model: str, u: dict,
                   cost: Optional[float]) -> None:

@@ -4,12 +4,14 @@ import Onboarding from './pages/Onboarding'
 import Inbox from './pages/Inbox'
 import Review from './pages/Review'
 import Board from './pages/Board'
+import RecapPage from './pages/Recap'
 import ProfilePage from './pages/Profile'
 import SearchPage from './pages/Search'
 import SettingsPage from './pages/Settings'
 import { ErrorBox, money, Spinner } from './ui'
+import Logo from './Logo'
 
-type Page = 'inbox' | 'ready' | 'review' | 'board' | 'profile' | 'search' | 'settings'
+type Page = 'inbox' | 'ready' | 'review' | 'board' | 'recap' | 'profile' | 'search' | 'settings'
 
 export default function App() {
   const [state, setState] = useState<AppState | null>(null)
@@ -80,12 +82,13 @@ export default function App() {
     <div className="app">
       <nav className="nav">
         <div className="brand">
-          <span className="brand-mark">J</span>
+          <Logo />
           <div><b>Job Hunt Agent</b><small>You review. You submit.</small></div>
         </div>
         {nav('inbox', 'Inbox', c.review)}
         {nav('ready', 'Ready to submit', ready)}
         {nav('board', 'Tracker', tracked)}
+        {nav('recap', 'Season recap')}
         {nav('profile', 'Profile')}
         {nav('search', 'Search & sources')}
         {nav('settings', 'Settings')}
@@ -121,6 +124,7 @@ export default function App() {
           <Inbox tick={tick} counts={c} onChange={refresh} onReview={() => setPage('review')} startTab={page === 'ready' ? 1 : 0} />
         )}
         {page === 'board' && <Board tick={tick} onChange={refresh} />}
+        {page === 'recap' && <RecapPage />}
         {page === 'profile' && <ProfilePage />}
         {page === 'search' && <SearchPage />}
         {page === 'settings' && <SettingsPage state={state} onChange={refresh} onRerunSetup={() => setOnboarding('restart')} />}

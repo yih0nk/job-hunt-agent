@@ -566,3 +566,26 @@ def shorten(settings: Settings, profile: Profile, prefs: Preferences, items: lis
     system = [{"type": "text", "text": SHORTEN_SYSTEM}, _profile_block(profile, prefs)]
     out = _call(settings, system, json.dumps(items, indent=1), ShortBullets, "tailor", max_tokens=6000)
     return {b.key: b.text for b in out.bullets}
+
+
+# --- Recap roast ----------------------------------------------------------------------
+
+class Roast(BaseModel):
+    roast: str
+
+
+ROAST_SYSTEM = """You write one roast for a job seeker's shareable season recap card, spoken by the
+app's mascot (a briefcase with binoculars for eyes). Roast the job search itself, using the
+numbers you're given: the ratios, the gaps between steps, the spend. Dry, specific, the kind
+of line people screenshot.
+Rules: 1-2 sentences, at most 150 characters. Reference at least one actual number. Punch at
+the process (ATS black holes, ghosting, window-shopping, overthinking), never at the person's
+identity, school, looks, background, or worth. No profanity, no emoji, no hashtags. Return a
+different joke each time you're asked."""
+
+
+def roast(settings: Settings, stats: dict) -> str:
+    content = json.dumps({k: stats[k] for k in ("roles_found", "scored", "good_fits", "packages", "applied",
+                                                 "interviews", "offers", "spend") if k in stats})
+    return _call(settings, [{"type": "text", "text": ROAST_SYSTEM}], content, Roast, "roast",
+                 model=settings.score_model or settings.model, max_tokens=2000).roast.strip()

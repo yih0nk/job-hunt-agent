@@ -79,9 +79,8 @@ export default function Review({ onChange, onExit }: { onChange: () => void; onE
     if (link) window.open(link, '_blank', 'noreferrer')
   }
 
-  useHotkeys({
-    ArrowLeft: skip, s: skip, ArrowDown: later, l: later, ArrowRight: draft, d: draft, o: open, z: doUndo, Escape: onExit,
-  })
+  // Arrows decide, d drafts, esc leaves. Undo stays a button.
+  useHotkeys({ ArrowLeft: skip, ArrowDown: later, ArrowRight: draft, d: draft, Escape: onExit })
 
   if (!queue) return <div className="review"><Spinner /></div>
 
@@ -133,11 +132,11 @@ export default function Review({ onChange, onExit }: { onChange: () => void; onE
           <div className="review-actions">
             <button className="btn" onClick={skip}><Kbd>←</Kbd> Skip</button>
             <button className="btn" onClick={later}><Kbd>↓</Kbd> Later</button>
-            <button className="btn" onClick={open}><Kbd>o</Kbd> Posting ↗</button>
+            <button className="btn" onClick={open}>Posting ↗</button>
             <button className="btn pop" onClick={draft}><Kbd>→</Kbd> Draft package</button>
           </div>
           <p className="small muted" style={{ marginTop: 14 }}>
-            {undo ? <>Pressed the wrong one? <Kbd>z</Kbd> to undo.</> : 'Drafts run in the background while you keep going.'}
+            {undo ? <>Pressed the wrong one? <button className="btn link" onClick={doUndo}>Undo</button></> : 'Drafts run in the background while you keep going.'}
           </p>
         </>
       ) : (

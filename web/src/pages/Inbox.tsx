@@ -49,27 +49,14 @@ export default function Inbox({ tick, counts, onChange, onReview, startTab = 0 }
     setSel(shown[n].id); setAdding(false)
     listRef.current?.querySelectorAll('.item')[n]?.scrollIntoView({ block: 'nearest' })
   }
-  const archive = async () => {
-    if (!current) return
-    await api.patchJob(current.id, { status: 'archived' })
-    showToast(`Archived ${current.company}`)
-    move(1); await load(); onChange()
-  }
   const draft = async () => {
     if (!current || current.status === 'drafting') return
     await api.draftLater(current.id)
     showToast(`Drafting ${current.company} in the background`)
     await load(); onChange()
   }
-  const open = () => {
-    const link = current?.resolved_url || current?.url
-    if (link) window.open(link, '_blank', 'noreferrer')
-  }
-
-  useHotkeys({
-    j: () => move(1), ArrowDown: () => move(1), k: () => move(-1), ArrowUp: () => move(-1),
-    a: archive, d: draft, o: open, r: onReview, '/': () => filterRef.current?.focus(),
-  }, !adding)
+  // Deliberately few: arrows to move, d to draft, r for review mode.
+  useHotkeys({ ArrowDown: () => move(1), ArrowUp: () => move(-1), d: draft, r: onReview }, !adding)
 
   const reviewCount = counts.review ?? 0
   return (
@@ -77,7 +64,7 @@ export default function Inbox({ tick, counts, onChange, onReview, startTab = 0 }
       <div className="list" ref={listRef}>
         <div className="list-head">
           <div className="row">
-            <input ref={filterRef} className="grow" style={{ width: 'auto' }} placeholder="Filter roles   /" value={q}
+            <input ref={filterRef} className="grow" style={{ width: 'auto' }} placeholder="Filter roles" value={q}
               onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === 'Escape' && (e.currentTarget.blur())} />
             <button className="btn small" onClick={() => setAdding(true)}>+ Add</button>
           </div>
@@ -113,7 +100,7 @@ export default function Inbox({ tick, counts, onChange, onReview, startTab = 0 }
         ))}
         {shown.length > 0 && (
           <div className="small muted" style={{ padding: 14, lineHeight: 2 }}>
-            <Kbd>j</Kbd> <Kbd>k</Kbd> move · <Kbd>d</Kbd> draft · <Kbd>a</Kbd> archive · <Kbd>o</Kbd> posting · <Kbd>r</Kbd> review
+            <Kbd>↑</Kbd> <Kbd>↓</Kbd> move · <Kbd>d</Kbd> draft · <Kbd>r</Kbd> review
           </div>
         )}
       </div>

@@ -386,6 +386,25 @@ def answers(settings: Settings, profile: Profile, prefs: Preferences, job: dict,
     return _call(settings, system, content, AnswerSet, "answers")
 
 
+# --- Job from a pasted link -----------------------------------------------------------
+
+class JobMeta(BaseModel):
+    company: str
+    title: str
+    location: str
+
+
+EXTRACT_SYSTEM = """You read a job posting page and return its company, job title, and location
+exactly as the page states them. Use "" for anything the page does not state. The company is
+the hiring company, not a job board (LinkedIn, Indeed, Greenhouse, etc.)."""
+
+
+def extract_job(settings: Settings, url: str, page_title: str, text: str) -> JobMeta:
+    content = f"URL: {url}\nPage title: {page_title}\n\n{text[:8000]}"
+    return _call(settings, [{"type": "text", "text": EXTRACT_SYSTEM}], content, JobMeta, "extract",
+                 model=settings.score_model or settings.model, max_tokens=2000)
+
+
 # --- One-line bullets -----------------------------------------------------------------
 
 class ShortBullet(BaseModel):

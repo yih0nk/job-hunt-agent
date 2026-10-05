@@ -426,3 +426,26 @@ def test_outreach_resumes_paused_web_search(monkeypatch, profile):
     assert bodies[0]["tools"][0]["type"] == "web_search_20260209"
     assert bodies[1]["messages"][-1]["role"] == "assistant"            # paused turn sent back to continue
     assert costs[0] > 0.03                                               # 3 searches at $0.01 counted
+
+
+def test_local_model_scores_with_retry_on_bad_json(monkeypatch, profile):
+    calls = []
+
+    def fake_ollama(settings, path, body=None, timeout=600):
+        calls.append(body)
+        text = "not json" if len(calls) == 1 else json.dumps(_fit(66))
+        return {"message": {"content": text}, "prompt_eval_count": 100, "eval_count": 20}
+    monkeypatch.setattr(llm, "_ollama", fake_ollama)
+    logged = []
+    monkeypatch.setattr(llm, "usage_hook", lambda *a: logged.append(a))
+    s = Settings(api_key="", score_provider="local", local_model="qwen3:14b")
+    fit = llm.score(s, profile, Preferences(), {"company": "A", "title": "T"})
+    assert fit.role_fit.score == 66
+    assert len(calls) == 2 and calls[0]["format"]["type"] == "object"   # schema-constrained
+    assert "didn't match the schema" in calls[1]["messages"][-1]["content"]
+    assert logged[0][2] == "local:qwen3:14b" and logged[0][4] == 0.0     # free, but still counted
+
+
+def test_local_needs_a_model(profile):
+    with pytest.raises(llm.LLMError, match="local model"):
+        llm.score(Settings(score_provider="local"), profile, Preferences(), {"company": "A", "title": "T"})

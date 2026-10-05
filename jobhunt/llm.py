@@ -9,6 +9,8 @@ from __future__ import annotations
 import base64
 import contextvars
 import json
+import urllib.error
+import urllib.request
 from typing import Callable, Optional, TypeVar
 
 import anthropic
@@ -82,6 +84,8 @@ def _call(settings: Settings, system: list[dict], content: list[dict] | str,
           out: type[T], kind: str, model: Optional[str] = None, max_tokens: int = 16000,
           tools: Optional[list[dict]] = None) -> T:
     model = model or settings.model
+    if _uses_local(settings, kind) and not tools and isinstance(content, str):
+        return _call_local(settings, system, content, out, kind)
     messages: list[dict] = [{"role": "user", "content": content}]
     kwargs: dict = dict(model=model, max_tokens=max_tokens, system=system, output_format=out)
     if tools:
@@ -116,6 +120,61 @@ def _call(settings: Settings, system: list[dict], content: list[dict] | str,
     if resp.stop_reason in ("max_tokens", "pause_turn") or resp.parsed_output is None:
         raise LLMError("The model's response was cut off or malformed. Try again.")
     return resp.parsed_output
+
+
+# --- Local models (Ollama) ------------------------------------------------------------
+# Scoring and drafting can run on a local model for $0. Resume import (reads PDFs) and
+# outreach (needs web search) always use Claude.
+
+LOCAL_KINDS = {"score": "score_provider", "extract": "score_provider", "roast": "score_provider",
+               "tailor": "draft_provider", "answers": "draft_provider"}
+
+
+def _uses_local(settings: Settings, kind: str) -> bool:
+    field = LOCAL_KINDS.get(kind)
+    return bool(field and getattr(settings, field, "claude") == "local")
+
+
+def _ollama(settings: Settings, path: str, body: Optional[dict] = None, timeout: int = 600) -> dict:
+    url = settings.local_url.rstrip("/") + path
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        raise LLMError(f"Local model error {e.code}: {e.read()[:200].decode('utf-8', 'replace')}") from e
+    except (urllib.error.URLError, OSError) as e:
+        raise LLMError(f"Can't reach Ollama at {settings.local_url}. Is it running? (ollama serve)") from e
+
+
+def local_models(settings: Settings) -> list[str]:
+    return sorted(m["name"] for m in _ollama(settings, "/api/tags", timeout=5).get("models", []))
+
+
+def _call_local(settings: Settings, system: list[dict], content: str, out: type[T], kind: str) -> T:
+    if not settings.local_model:
+        raise LLMError("Pick a local model in Settings first.")
+    sys_text = "\n\n".join(b["text"] for b in system if b.get("type") == "text")
+    schema = out.model_json_schema()
+    messages = [{"role": "system", "content": sys_text + "\n\nReply with JSON only, matching the given schema."},
+                {"role": "user", "content": content}]
+    last_err = ""
+    for _ in range(2):  # one retry with the validation error fed back
+        r = _ollama(settings, "/api/chat", {"model": settings.local_model, "messages": messages, "format": schema,
+                                            "stream": False, "options": {"temperature": 0.2, "num_ctx": 32768}})
+        if usage_hook:
+            usage_hook(current_job.get(), kind, "local:" + settings.local_model,
+                       {"input_tokens": r.get("prompt_eval_count", 0), "output_tokens": r.get("eval_count", 0),
+                        "cache_write": 0, "cache_read": 0}, 0.0)
+        text = (r.get("message") or {}).get("content", "")
+        try:
+            return out.model_validate_json(text)
+        except Exception as e:
+            last_err = str(e)[:500]
+            messages += [{"role": "assistant", "content": text},
+                         {"role": "user", "content": f"That JSON didn't match the schema: {last_err}. Reply again with valid JSON only."}]
+    raise LLMError(f"The local model's reply didn't match the expected format. Try a larger model. ({last_err[:120]})")
 
 
 def check_key(settings: Settings) -> None:

@@ -74,6 +74,8 @@ export default function SettingsPage({ state, onChange, onRerunSetup }: {
         <ErrorBox error={error} />
       </div>
 
+      <LocalModel s={s} save={save} />
+
       <div className="card stack">
         <h2>Automatic runs</h2>
         <Field label="Find & score new roles" hint="Only while the app is open. Each run scores up to 60 new roles.">
@@ -129,6 +131,58 @@ export default function SettingsPage({ state, onChange, onRerunSetup }: {
         <p className="muted">Submit an application, create accounts, enter passwords, solve CAPTCHAs, or invent
           experience. It prepares everything up to the submit button, and you take it from there.</p>
       </div>
+    </div>
+  )
+}
+
+/** Run scoring and/or drafting on a model on this computer via Ollama: free and private.
+ *  Resume import and outreach still need Claude (they read PDFs and search the web). */
+function LocalModel({ s, save }: { s: SettingsView; save: (p: SettingsPatch) => Promise<void> }) {
+  const [models, setModels] = useState<string[] | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+  const [url, setUrl] = useState(s.local_url)
+  const check = async () => {
+    setErr(null)
+    try { setModels((await api.localModels()).models) } catch (e) { setModels(null); setErr((e as Error).message) }
+  }
+  useEffect(() => { void check() }, [s.local_url])
+  const usingLocal = s.score_provider === 'local' || s.draft_provider === 'local'
+  return (
+    <div className="card stack">
+      <div className="card-head"><h2>Local model</h2><p>Free and private: runs on this computer with Ollama.</p></div>
+      <div className="grid2">
+        <Field label="Score roles with">
+          <select value={s.score_provider} onChange={e => save({ score_provider: e.target.value as 'claude' | 'local' })}>
+            <option value="claude">Claude (scoring model above)</option><option value="local">Local model, $0</option>
+          </select>
+        </Field>
+        <Field label="Draft packages with" hint="Smaller local models write noticeably weaker resumes. Claude is recommended here.">
+          <select value={s.draft_provider} onChange={e => save({ draft_provider: e.target.value as 'claude' | 'local' })}>
+            <option value="claude">Claude (drafting model above)</option><option value="local">Local model, $0</option>
+          </select>
+        </Field>
+      </div>
+      <div className="grid2">
+        <Field label="Model">
+          <div className="row">
+            <select className="grow" style={{ width: 'auto' }} value={s.local_model} onChange={e => save({ local_model: e.target.value })}>
+              <option value="">{models?.length ? 'Pick a model' : 'No models found'}</option>
+              {(models ?? []).map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+            <button className="btn small" onClick={check}>Refresh</button>
+          </div>
+        </Field>
+        <Field label="Ollama address">
+          <input value={url} onChange={e => setUrl(e.target.value)} onBlur={() => url !== s.local_url && save({ local_url: url })} />
+        </Field>
+      </div>
+      {err && (
+        <div className={usingLocal ? 'note small' : 'small muted'}>
+          {err} To set it up: install Ollama from <a href="https://ollama.com" target="_blank" rel="noreferrer">ollama.com</a>,
+          then run <code>ollama pull qwen3:14b</code> (or any model your machine can hold) and press Refresh.
+        </div>
+      )}
+      <p className="small muted">Resume import and outreach always use Claude: they read PDFs and search the web.</p>
     </div>
   )
 }

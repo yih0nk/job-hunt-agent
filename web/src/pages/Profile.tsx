@@ -79,61 +79,77 @@ export default function ProfilePage() {
     try { change(await api.importResume(f)) } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
   }
 
+  const linkHost = (u: string) => u.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0]
+  const setLink = (i: number, url: string) => {
+    const links = [...p.links]; links[i] = { label: linkHost(url), url }; set('links', links)
+  }
+
   return (
     <div className="page">
       <div className="page-head">
         <div><h1>Profile</h1><p>Your experience bank. Tailored resumes only ever draw from what's here.</p></div>
         <div className="row">
-          {!saved && <span className="chip yellow">Unsaved</span>}
-          <label className="btn">{busy ? <Spinner /> : 'Re-import resume'}
+          <label className="btn small ghost">{busy ? <Spinner /> : 'Re-import'}
             <input type="file" accept=".pdf,.txt,.md,.tex" hidden onChange={e => reimport(e.target.files?.[0])} /></label>
-          <button className="btn" onClick={() => { setShowPdf(s => !s); setBust(b => b + 1) }}>{showPdf ? 'Hide' : 'Preview'} base resume</button>
-          <button className="btn primary" disabled={saved} onClick={save}>Save</button>
+          <button className="btn small ghost" onClick={() => { setShowPdf(s => !s); setBust(b => b + 1) }}>
+            {showPdf ? 'Hide preview' : 'Preview'}</button>
+          {saved ? <span className="saved-note">All changes saved</span>
+            : <button className="btn pop" onClick={save}>Save changes</button>}
         </div>
       </div>
       <ErrorBox error={error} />
       {showPdf && (
-        <div className="card" style={{ marginBottom: 12 }}>
-          <div className="row" style={{ marginBottom: 8 }}><span className="muted small grow">Everything in your bank, rendered with the resume template.
-            Tailored resumes pick a subset per job.</span>
-            <a className="btn small" href={api.baseResumeUrl(bust)} target="_blank" rel="noreferrer">Open PDF</a></div>
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="row" style={{ marginBottom: 10 }}><span className="muted small grow">Your whole bank in the resume
+            template. Tailored resumes pick from it per job.</span>
+            <a className="btn small" href={api.baseResumeUrl(bust)} target="_blank" rel="noreferrer">PDF ↗</a></div>
           <ResumePreview pages={1} src={page => api.basePngUrl(page, bust)} />
         </div>
       )}
 
       <div className="card stack">
-        <h2>Basics</h2>
-        <div className="grid2">
-          <Field label="Full name"><input value={p.name} onChange={e => set('name', e.target.value)} /></Field>
+        <div className="card-head"><h2>Basics</h2></div>
+        <div className="grid4">
+          <Field label="Name"><input value={p.name} onChange={e => set('name', e.target.value)} /></Field>
           <Field label="Email"><input value={p.email} onChange={e => set('email', e.target.value)} /></Field>
           <Field label="Phone"><input value={p.phone} onChange={e => set('phone', e.target.value)} /></Field>
-          <Field label="Location"><input value={p.location} onChange={e => set('location', e.target.value)} /></Field>
+          <Field label="Location"><input value={p.location} placeholder="Los Angeles, CA" onChange={e => set('location', e.target.value)} /></Field>
         </div>
         <Field label="Headline"><input value={p.headline} onChange={e => set('headline', e.target.value)} /></Field>
         <Field label="Links">
           <div className="stack" style={{ gap: 6 }}>
             {p.links.map((l, i) => (
-              <div className="row" key={i}>
-                <input style={{ width: 140 }} value={l.label} placeholder="Label" onChange={e => {
-                  const links = [...p.links]; links[i] = { ...l, label: e.target.value }; set('links', links)
-                }} />
-                <input className="grow" style={{ width: 'auto' }} value={l.url} placeholder="https://" onChange={e => {
-                  const links = [...p.links]; links[i] = { ...l, url: e.target.value }; set('links', links)
-                }} />
-                <button className="btn small" onClick={() => set('links', p.links.filter((_, j) => j !== i))}>×</button>
+              <div className="link-row" key={i}>
+                <span className="muted small mono">{i + 1}</span>
+                <input value={l.url} placeholder="github.com/you" onChange={e => setLink(i, e.target.value)} />
+                <button className="btn small ghost" aria-label="Remove link" onClick={() => set('links', p.links.filter((_, j) => j !== i))}>×</button>
               </div>
             ))}
-            <div><button className="btn small" onClick={() => set('links', [...p.links, { label: '', url: '' }])}>+ Link</button></div>
+            <div><button className="btn small ghost" onClick={() => set('links', [...p.links, { label: '', url: '' }])}>+ Add link</button></div>
           </div>
-        </Field>
-        <WorkAuthFields profile={p} onChange={change} />
-        <Field label="Writing voice" hint="How drafted answers should sound.">
-          <textarea value={p.voice} onChange={e => set('voice', e.target.value)} />
         </Field>
       </div>
 
-      <div className="card">
-        <h2>Education</h2>
+      <div className="card stack">
+        <div className="card-head"><h2>Work authorization</h2><p>Used for eligibility checks and sponsorship questions.</p></div>
+        <WorkAuthFields profile={p} onChange={change} />
+      </div>
+
+      <details className="fold" style={{ marginTop: 16 }}>
+        <summary>Writing voice and resume rules</summary>
+        <div className="fold-body stack">
+          <Field label="Writing voice" hint="How drafted answers should sound.">
+            <textarea value={p.voice} onChange={e => set('voice', e.target.value)} />
+          </Field>
+          <Field label="Resume rules" hint="Optional. Good defaults are built in (one-line bullets, a real number in each, the headline metric in bold). Add anything specific to you: links to always show, phrasing to avoid, what never to say.">
+            <textarea rows={8} value={p.resume_rules} placeholder={'Every bullet fits on one line.\nBold one headline metric per bullet, nothing else.\nAlways include the GitHub link on project headings.'}
+              onChange={e => set('resume_rules', e.target.value)} />
+          </Field>
+        </div>
+      </details>
+
+      <div className="card" style={{ marginTop: 16 }}>
+        <div className="card-head"><h2>Education</h2></div>
         {p.education.map((ed, i) => (
           <div className="entry" key={ed.id}>
             <div className="grid2" style={{ marginBottom: 8 }}>
@@ -152,7 +168,7 @@ export default function ProfilePage() {
       </div>
 
       <div className="card">
-        <h2>Experience &amp; projects</h2>
+        <div className="card-head"><h2>Experience and projects</h2></div>
         <p className="muted small" style={{ marginBottom: 10 }}>Add everything worth featuring, even projects that
           aren't on your current resume. The tailor picks the best 3-5 per job.</p>
         {p.experience.map((en, i) => (

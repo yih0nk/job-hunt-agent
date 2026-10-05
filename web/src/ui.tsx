@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import type { Job, Status } from './api'
+import { api, type Job, type Status } from './api'
 
 export function TagInput({ value, onChange, placeholder }: {
   value: string[]; onChange: (v: string[]) => void; placeholder?: string
@@ -67,9 +67,22 @@ function hash(s: string): number {
 }
 
 /** Company initial on a colour picked from the name, so a company keeps its colour everywhere. */
-export function Avatar({ name, size }: { name: string; size?: 'lg' }) {
+// Logos that failed this session, so a company missing a logo isn't re-requested per row.
+const missingLogos = new Set<string>()
+
+/** Company logo when one can be found, else the initial on a colour picked from the name. */
+export function Avatar({ name, url, size }: { name: string; url?: string; size?: 'lg' }) {
+  const [failed, setFailed] = useState(missingLogos.has(name))
   const colour = POPS[hash(name.toLowerCase()) % POPS.length]
   const initial = (name.replace(/[^A-Za-z0-9]/g, '')[0] ?? '?').toUpperCase()
+  if (!failed) {
+    return (
+      <span className={`avatar logo ${size ?? ''}`} aria-hidden="true">
+        <img src={api.logoUrl(name, url)} alt="" loading="lazy"
+          onError={() => { missingLogos.add(name); setFailed(true) }} />
+      </span>
+    )
+  }
   return <span className={`avatar ${size ?? ''}`} style={{ background: `var(--${colour})` }} aria-hidden="true">{initial}</span>
 }
 
@@ -96,6 +109,15 @@ export function StatusPill({ status }: { status: Status }) {
   return <span className={`chip ${cls}`}>{label}</span>
 }
 
+/** "No Kubernetes experience" -> "no Kubernetes experience": exactly one "no", so gap phrases
+ *  from the scorer read the same whether or not they start with a negation. Casing is kept
+ *  because gaps are often proper nouns (TensorFlow, AWS). */
+export function gapLabel(m: string, max = 28): string {
+  const core = m.trim().replace(/^(no|not|lacks?|missing|limited)\b[:\s]*/i, '')
+  const text = 'no ' + core
+  return text.length > max ? text.slice(0, max - 1) + '…' : text
+}
+
 /** Small chips summarising a role: place, freshness, the first gap. */
 export function JobChips({ job }: { job: Job }) {
   const city = (job.location || '').split(/[,;·(]/)[0].trim()
@@ -108,7 +130,7 @@ export function JobChips({ job }: { job: Job }) {
         <span className={`chip ${fresh ? 'pink' : ''}`}>{fresh ? 'new' : ago(job.age_days)}</span>)}
       {job.status === 'drafted' && <span className="chip yellow">ready</span>}
       {job.status === 'drafting' && <span className="chip pink">drafting…</span>}
-      {missing && job.status !== 'drafted' && <span className="chip orange">no {missing.length > 16 ? missing.slice(0, 15) + '…' : missing}</span>}
+      {missing && job.status !== 'drafted' && <span className="chip orange" title={missing}>{gapLabel(missing, 22)}</span>}
     </div>
   )
 }

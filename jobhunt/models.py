@@ -78,6 +78,7 @@ class Profile(BaseModel):
     skills: list[SkillGroup] = []
     experience: list[Entry] = []
     voice: str = "Concise and specific. No em dashes. No buzzwords. Real experience only."
+    resume_rules: str = ""                # the candidate's own house style for every tailored resume
     learned_answers: list[LearnedAnswer] = []
 
     def bullet_index(self) -> dict[str, tuple[Entry, Bullet]]:
@@ -148,6 +149,7 @@ class Settings(BaseModel):
     score_model: str = "claude-sonnet-5"  # scoring runs on every new role, so it defaults cheaper
     effort: Literal["low", "medium", "high"] = "medium"
     auto_run_hours: int = 0               # 0 = off; otherwise scan + score every N hours while open
+    logos: bool = True                    # look up company logos (sends company names to Clearbit/Google)
 
 
 # --- LLM outputs (structured) -------------------------------------------------------
@@ -171,6 +173,7 @@ class FitScore(BaseModel):
 
 class TailoredEntry(BaseModel):
     entry_id: str
+    heading: str = ""            # projects only: descriptor retitled toward the role; "" keeps the bank's
     bullets: list[str]         # rewritten bullet text
     source_bullet_ids: list[str]  # the bank bullets each rewrite is based on (same order)
 

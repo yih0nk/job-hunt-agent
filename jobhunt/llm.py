@@ -12,7 +12,7 @@ import json
 from typing import Callable, Optional, TypeVar
 
 import anthropic
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from .models import (AnswerSet, Entry, FitScore, Preferences, Profile, Settings,
                      SkillGroup, TailoredResume)
@@ -99,6 +99,8 @@ def _call(settings: Settings, system: list[dict], content: list[dict] | str,
         raise LLMError(f"Anthropic API error {e.status_code}: {e.message}") from e
     except anthropic.APIConnectionError as e:
         raise LLMError("Could not reach the Anthropic API. Check your connection.") from e
+    except ValidationError as e:  # the SDK validates the structured reply against `out`
+        raise LLMError("The model's response didn't match the expected format. Try again.") from e
     _record(kind, resp.model or model, resp.usage)
     if resp.stop_reason == "refusal":
         raise LLMError("The model declined this request.")
@@ -273,23 +275,59 @@ def weighted_total(fit: FitScore, prefs: Preferences) -> int:
 
 # --- Resume tailoring ---------------------------------------------------------------
 
-TAILOR_SYSTEM = """You tailor a one-page resume for one job from the candidate's experience bank.
+TAILOR_SYSTEM = """You tailor the candidate's resume to one job. The bank in <candidate> is their
+full experience; treat it as their base resume, which already fills one page. Your output is a
+one-page resume a recruiter for this job reads as a clear match. Work through these steps.
 
-Rules, all strict:
-- NEVER fabricate. Every bullet you write must be a rewrite of one or more bank bullets.
-  source_bullet_ids has one string per bullet, same order: source_bullet_ids[i] is the
-  comma-separated bank bullet ids that bullets[i] is based on. Bullets without a real source
-  are discarded. Do not add metrics, tools, scope, or outcomes the sources do not state.
-- You may reorder, merge, trim, and reword bullets to use the job's vocabulary where it is
-  truthful.
-- Choose the entries (by entry_id) that best prove fit for this job, most relevant first.
-  Aim for one page: typically 3-5 entries with 2-4 bullets each.
-- skills: keep only skills the job calls for or that clearly support it, grouped. Remove
-  the rest. Never add a skill the candidate's bank does not show.
-- headline: one line, truthful, aimed at this role.
-- notes: list honest gaps (what the job wants that the candidate lacks) and anything
-  notable you left out. Keep each note short.
-Write in the candidate's voice (see candidate.voice)."""
+1. Read the job. Note its exact nouns for the work, tools, and domain.
+
+2. Start from the full bank. The base fills the page, so anything you add must displace
+   something; prefer swapping over shrinking. Drop a bullet or entry only for something more
+   relevant, or when it is clearly irrelevant here.
+
+3. Experience (work, research, leadership): keep every entry in the bank's order (it is
+   chronological). Within each entry, lead with the bullet most relevant to this job. Adopt the
+   job's exact nouns where they are truthful ("post-training data pipeline", "distributed
+   systems", "human-in-the-loop").
+
+4. Projects: rank by relevance, most relevant first. Swap a weaker project out for a stronger
+   bank project one-for-one rather than cramming. You may retitle a project's descriptor toward
+   the role in `heading` (e.g. "Model-evaluation framework" for an AI role); use "" to keep the
+   bank's. Never change the project's name.
+
+5. Bullets:
+   - NEVER fabricate. Every bullet is a rewrite of one or more bank bullets.
+     source_bullet_ids[i] is the comma-separated bank bullet ids that bullets[i] is based on.
+     Bullets without a real source are discarded. Never add metrics, tools, scope, ownership,
+     or outcomes the sources don't state, and never upgrade a contribution ("co-trained" stays
+     "co-trained", "contributed to" never becomes "built").
+   - Keep every number, metric, and named tool from the source. Never shorten by cutting the
+     metric.
+   - Default house style (candidate.resume_rules override any of it):
+     - Each bullet fits on ONE line: about 120-130 characters. The app checks this and sends
+       wrapped bullets back to be shortened, so aim under.
+     - Verb + what was built + 1-3 tools woven into the sentence ("in Flask and SQLite") + who
+       it was for + outcome. No parenthetical tech lists.
+     - Numbers a recruiter can read: before/after for intuitive units ("from 30 minutes to under
+       5"), a percent otherwise. Never a range like "2-6x".
+     - Bold the single headline metric of a bullet with **double asterisks**; nothing else
+       (no tools, no verbs). No metric, no bold.
+
+6. Skills: CUT before you reorder. Delete every skill this job doesn't call for, even true ones;
+   a block listing everything reads as keyword-stuffing. Keep what the job names, what the
+   featured entries demonstrate, and core languages, then lead each group with the job's named
+   tools. Keep a credible block: the bank's groups, about three solid lines, not just the job's
+   literal words. If you cut the only bullet that shows a skill, cut that skill too. Never add
+   a skill the bank doesn't show.
+
+7. headline: "" unless the bank has one and the rules don't say otherwise.
+
+8. notes, short and honest, always including: which skills you cut; anything you deliberately
+   did not claim and why (honesty guardrails); a candid fit read naming the real gaps.
+
+candidate.resume_rules is the candidate's own house style. Follow it exactly; where it conflicts
+with a default above, the rules win, except that nothing overrides the no-fabrication rule.
+Write in candidate.voice."""
 
 
 def tailor(settings: Settings, profile: Profile, prefs: Preferences, job: dict) -> TailoredResume:
@@ -346,3 +384,31 @@ def answers(settings: Settings, profile: Profile, prefs: Preferences, job: dict,
     content = (f"{_job_text(job)}\n\n<learned_answers>\n{json.dumps(learned, indent=1)}\n</learned_answers>\n\n"
                f"<questions>\n{q}\n</questions>")
     return _call(settings, system, content, AnswerSet, "answers")
+
+
+# --- One-line bullets -----------------------------------------------------------------
+
+class ShortBullet(BaseModel):
+    key: str
+    text: str
+
+
+class ShortBullets(BaseModel):
+    bullets: list[ShortBullet]
+
+
+SHORTEN_SYSTEM = """These resume bullets wrap onto a second line. Rewrite each to fit on one line:
+at most the given number of characters (not counting ** markers).
+- Keep the headline metric (and its **bold**), the main tool, and the outcome.
+- Cut filler, secondary tools, and qualifiers first. Tighten verbs ("in order to" -> "to").
+- Never add anything that isn't already in the bullet. Never change what it claims.
+- If candidate.resume_rules explicitly allow this particular bullet to run two lines, return it
+  unchanged.
+Return every key you were given."""
+
+
+def shorten(settings: Settings, profile: Profile, prefs: Preferences, items: list[dict]) -> dict[str, str]:
+    """items: [{key, text, max_chars}] -> {key: new text}."""
+    system = [{"type": "text", "text": SHORTEN_SYSTEM}, _profile_block(profile, prefs)]
+    out = _call(settings, system, json.dumps(items, indent=1), ShortBullets, "tailor", max_tokens=6000)
+    return {b.key: b.text for b in out.bullets}

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, type FitScore, type Job } from '../api'
-import { ago, Avatar, ErrorBox, Kbd, Spinner, Sticker, useHotkeys, useToast } from '../ui'
+import { ago, Avatar, ErrorBox, gapLabel, Kbd, Spinner, Sticker, useHotkeys, useToast } from '../ui'
 
 const PARTS: [keyof FitScore, string][] = [
   ['role_fit', 'role'], ['skills', 'skills'], ['eligibility', 'eligibility'], ['level', 'level'], ['preferences', 'prefs'],
@@ -79,9 +79,8 @@ export default function Review({ onChange, onExit }: { onChange: () => void; onE
     if (link) window.open(link, '_blank', 'noreferrer')
   }
 
-  useHotkeys({
-    ArrowLeft: skip, s: skip, ArrowDown: later, l: later, ArrowRight: draft, d: draft, o: open, z: doUndo, Escape: onExit,
-  })
+  // Arrows decide, d drafts, esc leaves. Undo stays a button.
+  useHotkeys({ ArrowLeft: skip, ArrowDown: later, ArrowRight: draft, d: draft, Escape: onExit })
 
   if (!queue) return <div className="review"><Spinner /></div>
 
@@ -101,7 +100,7 @@ export default function Review({ onChange, onExit }: { onChange: () => void; onE
           <div className={`review-card ${out}`} key={job.id}>
             <Sticker score={job.score} size="xl" />
             <div className="row" style={{ gap: 12 }}>
-              <Avatar name={job.company} size="lg" />
+              <Avatar name={job.company} url={job.resolved_url || job.url} size="lg" />
               <div>
                 <div style={{ fontWeight: 700, fontSize: 16 }}>{job.company}</div>
                 <div className="muted small">{[job.location, ago(job.age_days), job.source].filter(Boolean).join(' · ')}</div>
@@ -116,7 +115,7 @@ export default function Review({ onChange, onExit }: { onChange: () => void; onE
                     const v = (job.score_detail![k] as { score: number }).score
                     return <span key={k} className={`chip ${v >= 75 ? 'mint' : v >= 55 ? 'yellow' : 'red'}`}>{label} {v}</span>
                   })}
-                  {job.score_detail.missing.slice(0, 3).map(m => <span key={m} className="chip orange">no {m}</span>)}
+                  {job.score_detail.missing.slice(0, 3).map(m => <span key={m} className="chip orange" title={m}>{gapLabel(m, 40)}</span>)}
                 </div>
                 <details className="fold" style={{ marginTop: 18, boxShadow: 'none' }}>
                   <summary>Why this score</summary>
@@ -133,11 +132,11 @@ export default function Review({ onChange, onExit }: { onChange: () => void; onE
           <div className="review-actions">
             <button className="btn" onClick={skip}><Kbd>←</Kbd> Skip</button>
             <button className="btn" onClick={later}><Kbd>↓</Kbd> Later</button>
-            <button className="btn" onClick={open}><Kbd>o</Kbd> Posting ↗</button>
+            <button className="btn" onClick={open}>Posting ↗</button>
             <button className="btn pop" onClick={draft}><Kbd>→</Kbd> Draft package</button>
           </div>
           <p className="small muted" style={{ marginTop: 14 }}>
-            {undo ? <>Pressed the wrong one? <Kbd>z</Kbd> to undo.</> : 'Drafts run in the background while you keep going.'}
+            {undo ? <>Pressed the wrong one? <button className="btn link" onClick={doUndo}>Undo</button></> : 'Drafts run in the background while you keep going.'}
           </p>
         </>
       ) : (

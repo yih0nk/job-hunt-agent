@@ -116,6 +116,12 @@ export default function SettingsPage({ state, onChange, onRerunSetup }: {
         <h2>Your data</h2>
         <p>Your profile, jobs, and packages live in <code>{state.data_dir}</code>; your API key is in the system
           keychain. Nothing is uploaded anywhere except the text sent to Claude for scoring and drafting.</p>
+        <label className="check">
+          <input type="checkbox" checked={s.logos} onChange={e => save({ logos: e.target.checked })} />
+          Show company logos
+        </label>
+        <p className="small muted" style={{ marginTop: -6 }}>Looks up each company's logo once by name (Clearbit) and
+          domain (Google), then keeps it on this computer. Only company names are sent.</p>
         <div><button className="btn" onClick={onRerunSetup}>Run setup again</button></div>
       </div>
       <div className="card stack">

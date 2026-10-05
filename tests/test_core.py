@@ -246,8 +246,8 @@ def test_api_key_moves_to_keychain(monkeypatch, store):
 
 def test_long_resume_trimmed_to_one_page(monkeypatch, store):
     bank = [Entry(id=f"e{i}", kind="work", title=f"Role {i}", org="Org",
-                  bullets=[Bullet(id=f"e{i}b{k}", text="Built and shipped a meaningful system " * 4)
-                           for k in range(6)]) for i in range(6)]
+                  bullets=[Bullet(id=f"e{i}b{k}", text=" ".join(f"word{i}{k}{n}" for n in "abcdefgh"))
+                           for k in range(8)]) for i in range(8)]
     prof = Profile(name="Long Resume", experience=bank)
     store.put_doc("profile", prof)
     store.put_settings(Settings(api_key="x"))
@@ -305,3 +305,81 @@ def test_interrupted_drafts_recover(store):
     store.update_job("x", status="drafting")
     pipeline.recover_interrupted(store)
     assert store.job("x")["status"] == "review" and "interrupted" in store.job("x")["last_error"]
+
+
+def test_logo_image_checks():
+    from jobhunt import logos
+    png = lambda px: b"\x89PNG\r\n\x1a\n" + b"\0" * 8 + px.to_bytes(4, "big") * 2 + b"\0" * 20
+    assert logos._good(png(180), "image/png") == "png"
+    assert logos._good(png(32), "image/png") is None            # too small to look sharp
+    assert logos._good(png(32), "image/png", min_px=16) == "png"  # ok as a last resort
+    assert logos._good(b'<svg xmlns="http://www.w3.org/2000/svg"></svg>', "image/svg+xml") == "svg"
+    assert logos._good(b"<html>not an image</html>", "text/html") is None
+    assert logos.clean_name("🔥Waymo") == "Waymo" and logos.clean_name("Acme (YC W24)") == "Acme"
+    assert logos.domain_from_url("https://jobs.ashbyhq.com/ramp/x") is None
+    assert logos.domain_from_url("https://careers.acme.com/jobs/1") == "acme.com"
+
+
+def test_bold_markup_renders_and_tolerates_stray_asterisks(tmp_path, profile):
+    profile.experience[0].bullets[0].text = "Cut prep from **30 minutes to seconds** for **2,000+ clients**"
+    profile.experience[0].bullets[1].text = "Odd ** marker with no partner and a*b"
+    out = render_pdf(build_data(profile), tmp_path / "b.pdf")
+    assert page_count(out) == 1
+
+
+def test_resume_groups_research_under_experience(profile):
+    profile.experience.append(Entry(id="r1", kind="research", title="RA", org="Lab",
+                                    bullets=[Bullet(id="rb", text="Did research")]))
+    sections = {s["title"]: [e["org"] for e in s["entries"]] for s in build_data(profile)["sections"]}
+    assert sections["Experience"] == ["Acme", "Lab"]
+
+
+def test_wrapped_bullets_are_shortened_to_one_line(monkeypatch, store, profile):
+    long = "Built a Go billing reconciliation service processing 2M rows/day " * 3
+    profile.experience[0].bullets[1].text = long.strip()
+    store.put_doc("profile", profile)
+    store.put_settings(Settings(api_key="x"))
+    store.insert_job({"id": "j3", "company": "Acme", "title": "SWE"})
+    store.update_job("j3", description="Go")
+    tailored = {"headline": "", "skills": [], "notes": [],
+                "entries": [{"entry_id": "e1", "heading": "", "bullets": ["Cut latency 40% with a cache", long.strip()],
+                             "source_bullet_ids": ["b1", "b2"]}]}
+    shortened = {"bullets": [{"key": "e1:1", "text": "Built a Go billing service processing **2M rows/day**"}]}
+    responses = iter([tailored, shortened, {"answers": [], "gaps": []}])
+    captured = []
+    monkeypatch.setattr(llm, "_client", lambda s: _mock_client(next(responses), captured))
+    pkg = pipeline.draft(store, "j3")["package"]
+    bullets = pkg["tailored"]["entries"][0]["bullets"]
+    assert "Built a Go billing service processing **2M rows/day**" in bullets
+    shorten_req = json.loads(captured[1]["messages"][0]["content"])
+    assert shorten_req[0]["key"] == "e1:1" and shorten_req[0]["max_chars"] <= 125
+    assert not any("still run two lines" in n for n in pkg["tailored"]["notes"])
+
+
+def test_short_resume_is_filled_back_to_a_full_page(monkeypatch, store, profile):
+    profile.experience.append(Entry(id="p1", kind="project", title="Chess Engine", org="Bitboards",
+                                    bullets=[Bullet(id="pb", text="Wrote a bitboard move generator reaching 40M nodes/sec")]))
+    store.put_doc("profile", profile)
+    store.put_settings(Settings(api_key="x"))
+    store.insert_job({"id": "j4", "company": "Acme", "title": "SWE"})
+    store.update_job("j4", description="Go")
+    thin = {"headline": "", "skills": [], "notes": ["Left out Chess Engine since it is unrelated."],
+            "entries": [{"entry_id": "e1", "heading": "", "bullets": ["Cut latency 40% with a cache"], "source_bullet_ids": ["b1"]}]}
+    responses = iter([thin, {"answers": [], "gaps": []}])
+    monkeypatch.setattr(llm, "_client", lambda s: _mock_client(next(responses), []))
+    t = pipeline.draft(store, "j4")["package"]["tailored"]
+    used = {i for e in t["entries"] for ids in e["source_bullet_ids"] for i in ids.split(",")}
+    assert used == {"b1", "b2", "pb"}                         # every bank line came back, verbatim
+    assert not any("Left out Chess Engine" in n for n in t["notes"])   # stale note removed
+    assert any("Added back 2 lines" in n for n in t["notes"])
+
+
+def test_duplicate_bullets_are_removed_when_fitting(tmp_path, profile):
+    from jobhunt.models import TailoredEntry, TailoredResume
+    t = TailoredResume(headline="", skills=[], notes=[], entries=[TailoredEntry(
+        entry_id="e1", bullets=["Built a Go billing service processing **2M rows/day**", "Cut latency 40% with a cache",
+                                "Built an internal billing service in Go processing 2M rows/day"],
+        source_bullet_ids=["b2", "b1", "b2"])])
+    pipeline.fit_page(profile, t, tmp_path / "d.pdf")
+    assert t.entries[0].bullets == ["Cut latency 40% with a cache", "Built a Go billing service processing **2M rows/day**"] \
+        or t.entries[0].bullets.count("Built an internal billing service in Go processing 2M rows/day") == 0

@@ -53,7 +53,7 @@ export default function Board({ tick, onChange }: { tick: number; onChange: () =
                   <div className="tile" key={j.id} draggable onClick={() => setOpen(j.id)}
                     onDragStart={e => e.dataTransfer.setData('text/plain', j.id)}>
                     <div className="row" style={{ gap: 8, flexWrap: 'nowrap' }}>
-                      <Avatar name={j.company} />
+                      <Avatar name={j.company} url={j.resolved_url || j.url} />
                       <div style={{ minWidth: 0 }}>
                         <div className="t">{j.company}</div>
                         <div className="small" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{j.title}</div>

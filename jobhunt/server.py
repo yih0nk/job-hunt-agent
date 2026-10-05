@@ -245,6 +245,18 @@ def local_models():
     return _llm_errors(lambda: {"models": llm.local_models(store.settings())})
 
 
+@app.get("/api/recap")
+def recap():
+    return store.recap(store.preferences().thresholds.review)
+
+
+@app.post("/api/recap/roast")
+def recap_roast():
+    """A fresh mascot roast from the season's counts only (no profile data)."""
+    stats = store.recap(store.preferences().thresholds.review)
+    return {"roast": _llm_errors(lambda: llm.roast(store.settings(), stats))}
+
+
 @app.get("/api/usage")
 def usage():
     return store.usage_summary()

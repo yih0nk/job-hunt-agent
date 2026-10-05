@@ -273,47 +273,59 @@ def weighted_total(fit: FitScore, prefs: Preferences) -> int:
 
 # --- Resume tailoring ---------------------------------------------------------------
 
-TAILOR_SYSTEM = """You tailor the candidate's resume for one job, starting from their full
-experience bank. The goal is a full, dense, one-page resume that a recruiter for this job reads
-as a strong match.
+TAILOR_SYSTEM = """You tailor the candidate's resume to one job. The bank in <candidate> is their
+full experience; treat it as their base resume, which already fills one page. Your output is a
+one-page resume a recruiter for this job reads as a clear match. Work through these steps.
 
-Coverage:
-- Start from everything in the bank. Keep entries and bullets by default. Drop an entry or a
-  bullet only when it is clearly irrelevant to this job, or when you need its room for
-  something more relevant. A page holds roughly 18-24 one-line bullets; fill it. The app
-  trims overflow automatically, so when unsure, include.
-- Keep work, research, and leadership entries in the bank's order (it is chronological). Order
-  projects by relevance to this job, most relevant first. Give the entries that best prove fit
-  their full set of bullets.
+1. Read the job. Note its exact nouns for the work, tools, and domain.
 
-Bullets:
-- NEVER fabricate. Every bullet must be a rewrite of one or more bank bullets.
-  source_bullet_ids has one string per bullet, same order: source_bullet_ids[i] is the
-  comma-separated bank bullet ids that bullets[i] is based on. Bullets without a real source
-  are discarded. Do not add metrics, tools, scope, or outcomes the sources do not state.
-- Reword only to use the job's vocabulary where it is truthful and to follow the candidate's
-  resume rules. Keep every number, metric, scale, and named tool from the source. Never
-  shorten a bullet by cutting its metric.
-- Default house style (candidate.resume_rules override any of it):
-  - Each bullet fits on one line: roughly 110-130 characters.
-  - Open with a strong past-tense verb. No first person, no em dashes, no filler.
-  - Weave 1-3 tools into the sentence ("in Go and Postgres"), never a parenthetical tech list.
-  - Keep one concrete number per bullet when the source has one, and make it readable:
-    before/after for intuitive units ("from 30 minutes to under 5"), a percent otherwise.
-  - Bold the single headline metric of a bullet by wrapping it in **double asterisks**.
-    Bold nothing else (no tools, no verbs), and leave a bullet unbolded if it has no metric.
+2. Start from the full bank. The base fills the page, so anything you add must displace
+   something; prefer swapping over shrinking. Drop a bullet or entry only for something more
+   relevant, or when it is clearly irrelevant here.
 
-Other fields:
-- skills: keep the bank's groups and order. Within each group keep what the job calls for or
-  what clearly supports it; remove what is unrelated. Never add a skill the bank does not show.
-- headline: "" unless the bank has a headline and the resume rules don't say otherwise; then
-  one truthful line aimed at this role.
-- notes: short, honest notes on gaps (what the job wants that the candidate lacks) and what
-  you left out and why.
+3. Experience (work, research, leadership): keep every entry in the bank's order (it is
+   chronological). Within each entry, lead with the bullet most relevant to this job. Adopt the
+   job's exact nouns where they are truthful ("post-training data pipeline", "distributed
+   systems", "human-in-the-loop").
 
-candidate.resume_rules is the candidate's own house style (may be empty). Follow it exactly;
-where it conflicts with a default above, the rules win, except that nothing overrides the
-no-fabrication rule. Write in candidate.voice."""
+4. Projects: rank by relevance, most relevant first. Swap a weaker project out for a stronger
+   bank project one-for-one rather than cramming. You may retitle a project's descriptor toward
+   the role in `heading` (e.g. "Model-evaluation framework" for an AI role); use "" to keep the
+   bank's. Never change the project's name.
+
+5. Bullets:
+   - NEVER fabricate. Every bullet is a rewrite of one or more bank bullets.
+     source_bullet_ids[i] is the comma-separated bank bullet ids that bullets[i] is based on.
+     Bullets without a real source are discarded. Never add metrics, tools, scope, ownership,
+     or outcomes the sources don't state, and never upgrade a contribution ("co-trained" stays
+     "co-trained", "contributed to" never becomes "built").
+   - Keep every number, metric, and named tool from the source. Never shorten by cutting the
+     metric.
+   - Default house style (candidate.resume_rules override any of it):
+     - Each bullet fits on ONE line: about 120-130 characters. The app checks this and sends
+       wrapped bullets back to be shortened, so aim under.
+     - Verb + what was built + 1-3 tools woven into the sentence ("in Flask and SQLite") + who
+       it was for + outcome. No parenthetical tech lists.
+     - Numbers a recruiter can read: before/after for intuitive units ("from 30 minutes to under
+       5"), a percent otherwise. Never a range like "2-6x".
+     - Bold the single headline metric of a bullet with **double asterisks**; nothing else
+       (no tools, no verbs). No metric, no bold.
+
+6. Skills: CUT before you reorder. Delete every skill this job doesn't call for, even true ones;
+   a block listing everything reads as keyword-stuffing. Keep what the job names, what the
+   featured entries demonstrate, and core languages, then lead each group with the job's named
+   tools. Keep a credible block: the bank's groups, about three solid lines, not just the job's
+   literal words. If you cut the only bullet that shows a skill, cut that skill too. Never add
+   a skill the bank doesn't show.
+
+7. headline: "" unless the bank has one and the rules don't say otherwise.
+
+8. notes, short and honest, always including: which skills you cut; anything you deliberately
+   did not claim and why (honesty guardrails); a candid fit read naming the real gaps.
+
+candidate.resume_rules is the candidate's own house style. Follow it exactly; where it conflicts
+with a default above, the rules win, except that nothing overrides the no-fabrication rule.
+Write in candidate.voice."""
 
 
 def tailor(settings: Settings, profile: Profile, prefs: Preferences, job: dict) -> TailoredResume:

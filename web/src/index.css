@@ -168,8 +168,10 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--i
 .tabs button:hover { border-color: var(--ink); }
 .tabs button.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
 .tabs .n { font-family: var(--mono); font-weight: 500; margin-left: 4px; opacity: 0.75; }
-.item { display: flex; gap: 11px; padding: 12px 14px; border-bottom: var(--hair); cursor: pointer; align-items: flex-start; }
+.item { display: flex; gap: 11px; padding: 12px 14px; border-bottom: var(--hair); cursor: pointer; align-items: flex-start;
+  transition: background .15s ease, transform .07s ease; }
 .item:hover { background: var(--sunk); }
+.item:active { transform: scale(.99); }
 .item.on { background: var(--yellow); color: var(--on-pop); }
 .item.on .s { color: var(--on-pop); }
 .item.on .chip { background: var(--panel); color: var(--text); }
@@ -178,6 +180,10 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--i
 .item .chips { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 5px; }
 .detail { overflow: auto; container-type: inline-size; }
 .detail-inner { padding: 26px 30px 60px; max-width: 1040px; }
+/* Content slides up as it mounts; replays on each job click (root gains .stack). */
+.detail-inner.stack { animation: detailIn .34s cubic-bezier(.2, .8, .2, 1); }
+@keyframes detailIn { from { opacity: 0; transform: translateY(14px) scale(.992); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .detail-inner.stack { animation: none; } }
 .empty { padding: 48px 24px; text-align: center; color: var(--muted); }
 .empty-card { border: 2px dashed var(--ink); border-radius: var(--radius); padding: 28px; text-align: center; }
 .empty-card h2 { margin-bottom: 6px; }

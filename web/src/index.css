@@ -291,43 +291,64 @@ details.fold > .fold-body { padding: 0 16px 16px; }
 .draft { border: 1.5px solid var(--line); border-radius: var(--radius); padding: 10px 12px; background: var(--sunk); }
 .draft-text { white-space: pre-wrap; font-size: 13px; margin-top: 6px; line-height: 1.5; }
 
-/* --- season recap: a receipt slapped on a sticker sheet (1200x630 share size) ---- */
-.rcpt-card { position: relative; width: 100%; max-width: 960px; aspect-ratio: 1200 / 630; overflow: hidden;
-  background: #cdb8ff; color: #111; border: 3px solid #111; border-radius: 14px; box-shadow: 8px 8px 0 #111;
-  font-family: var(--font); container-type: inline-size;
-  background-image: radial-gradient(rgba(17,17,17,0.13) 1.4px, transparent 1.4px); background-size: 2.2cqw 2.2cqw; }
-.rcpt-title { position: absolute; left: 4cqw; top: 3cqw; font-size: 4.2cqw; font-weight: 700; line-height: 0.95;
-  letter-spacing: -0.03em; }
-.rcpt { position: absolute; left: 5.5cqw; top: 13cqw; width: 33cqw; background: #fffdf6; padding: 1.8cqw 2.2cqw 3cqw;
-  transform: rotate(-4deg); box-shadow: 0.9cqw 0.9cqw 0 #111; font-family: var(--mono); font-size: 1.2cqw; line-height: 1.5;
-  clip-path: polygon(0 0, 100% 0, 100% 97%, 96% 100%, 92% 97%, 88% 100%, 84% 97%, 80% 100%, 76% 97%, 72% 100%, 68% 97%,
-    64% 100%, 60% 97%, 56% 100%, 52% 97%, 48% 100%, 44% 97%, 40% 100%, 36% 97%, 32% 100%, 28% 97%, 24% 100%, 20% 97%,
-    16% 100%, 12% 97%, 8% 100%, 4% 97%, 0 100%); }
-.rcpt-head { text-align: center; font-weight: 700; font-size: 1.7cqw; letter-spacing: 0.1em; }
-.rcpt-sub { text-align: center; color: #666; font-size: 1.05cqw; }
-.rcpt-rule { border-top: 0.2cqw dashed #111; margin: 0.8cqw 0; }
-.rcpt-line { display: flex; align-items: baseline; gap: 0.5cqw; }
-.rcpt-dots { flex: 1; border-bottom: 0.15cqw dotted #999; transform: translateY(-0.35cqw); }
-.rcpt-hl { background: #9ff0d4; padding: 0 0.4cqw; }
-.rcpt-total { font-size: 1.75cqw; font-weight: 700; }
-.rcpt-names { font-size: 1cqw; color: #444; margin-top: 0.6cqw; }
-.rcpt-thanks { text-align: center; margin-top: 1cqw; font-size: 1.1cqw; letter-spacing: 0.12em; }
-.rcpt-barcode { height: 2.8cqw; margin-top: 0.6cqw;
-  background: repeating-linear-gradient(90deg, #111 0 0.25cqw, transparent 0.25cqw 0.45cqw, #111 0.45cqw 0.6cqw,
-    transparent 0.6cqw 0.95cqw, #111 0.95cqw 1.35cqw, transparent 1.35cqw 1.6cqw); }
-.rcpt-stamp { position: absolute; left: 33cqw; top: 13.5cqw; width: 11cqw; height: 11cqw; border-radius: 50%;
-  border: 0.45cqw solid #d23c2a; color: #d23c2a; display: grid; place-items: center; text-align: center;
-  font-family: var(--mono); font-weight: 700; font-size: 1.5cqw; line-height: 1.1; transform: rotate(-16deg);
-  background: rgba(255, 253, 246, 0.35); }
-.rcpt-mascot { position: absolute; right: 5cqw; bottom: 7cqw; width: 46cqw; display: flex; flex-direction: column;
-  align-items: flex-end; gap: 1.6cqw; }
-.rcpt-bubble { position: relative; background: #fff; border: 0.3cqw solid #111; border-radius: 2cqw; padding: 1.8cqw 2.2cqw;
-  font-size: 2.35cqw; font-weight: 700; line-height: 1.18; letter-spacing: -0.01em; box-shadow: 0.7cqw 0.7cqw 0 #111; }
-.rcpt-bubble::after { content: ""; position: absolute; right: 8cqw; bottom: -2.2cqw; width: 2.6cqw; height: 2.6cqw;
-  background: #fff; border-right: 0.3cqw solid #111; border-bottom: 0.3cqw solid #111; transform: rotate(40deg) skew(-10deg); }
-.rcpt-bot { width: 13cqw; height: 13cqw; margin-right: 4cqw; transform: rotate(6deg); }
-.rcpt-sticker { position: absolute; border: 0.3cqw solid #111; padding: 0.7cqw 1.3cqw; font-weight: 700; font-size: 1.5cqw;
-  box-shadow: 0.45cqw 0.45cqw 0 #111; border-radius: 0.6cqw; }
-.rcpt-sticker b { font-size: 2.6cqw; margin-right: 0.4cqw; }
-.rcpt-sticker.pink { background: #ffb3d9; } .rcpt-sticker.mint { background: #9ff0d4; }
-.rcpt-foot { position: absolute; right: 2.4cqw; bottom: 1.8cqw; font-family: var(--mono); font-size: 1.15cqw; opacity: 0.7; }
+/* --- season recap: a tear-off ticket (1200x630 share size) ----------------------- */
+.tkt-stage { width: 100%; max-width: 960px; perspective: 1700px; perspective-origin: 50% 42%; }
+.tkt-card { position: relative; width: 100%; aspect-ratio: 1200 / 630; container-type: inline-size;
+  border: 3px solid #111; border-radius: 16px;
+  background: radial-gradient(130% 125% at 50% -10%, #2d2256 0%, #211844 58%, #181030 100%);
+  transform-style: preserve-3d; transform: rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+  transition: transform .5s cubic-bezier(.2,.8,.2,1), box-shadow .5s ease; will-change: transform;
+  box-shadow: 10px 12px 0 #111, 0 34px 70px -24px rgba(16,8,46,.85); }
+.tkt-stage.is-live .tkt-card { transition: transform .08s linear, box-shadow .2s ease;
+  box-shadow: 14px 18px 0 #111, 0 48px 94px -26px rgba(16,8,46,.95); }
+@media (prefers-reduced-motion: reduce) { .tkt-card { transition: none; } }
+
+/* the paper ticket, floating just above the mat */
+.tkt { position: absolute; inset: 3cqw; display: flex; overflow: hidden; border-radius: 10px;
+  background: #fdf6e8; color: #1a1a1a; font-family: var(--mono); transform: translateZ(38px);
+  background-image: radial-gradient(rgba(0,0,0,0.05) 1px, transparent 1px); background-size: 1.7cqw 1.7cqw; }
+
+.tkt-main { flex: 1; min-width: 0; padding: 2.3cqw 2.7cqw 2.1cqw; display: flex; flex-direction: column; }
+.tkt-band { display: flex; justify-content: space-between; font-size: 1.1cqw; letter-spacing: 0.16em; font-weight: 700; }
+.tkt-band span:last-child { color: #7a4dff; }
+.tkt-title { font-family: var(--font); font-weight: 700; font-size: 4.1cqw; line-height: 0.95;
+  letter-spacing: -0.03em; margin: 0.9cqw 0 1.3cqw; }
+.tkt-rows { font-size: 1.3cqw; line-height: 1.72; }
+.tkt-row { display: flex; align-items: baseline; gap: 0.5cqw; }
+.tkt-row > span:first-child { letter-spacing: 0.05em; }
+.tkt-dots { flex: 1; border-bottom: 0.14cqw dotted #bcb097; transform: translateY(-0.35cqw); }
+.tkt-row b { font-weight: 700; }
+.tkt-hl { background: #cbb2ff; padding: 0 0.5cqw; border-radius: 0.3cqw; }
+.tkt-rule { border-top: 0.18cqw dashed #1a1a1a; margin: 0.7cqw 0; }
+.tkt-names { font-size: 0.95cqw; color: #6a6250; margin-top: 0.55cqw; letter-spacing: 0.03em; }
+.tkt-verdict { margin-top: auto; background: #141414; color: #fdf6e8; border-radius: 0.9cqw; padding: 1cqw 1.4cqw; }
+.tkt-verdict-k { font-size: 0.92cqw; letter-spacing: 0.24em; font-weight: 700; color: #ffd23e; }
+.tkt-verdict p { margin: 0.3cqw 0 0; font-family: var(--font); font-weight: 700; font-size: 1.95cqw;
+  line-height: 1.12; letter-spacing: -0.01em; }
+
+/* right-hand tear-off stub */
+.tkt-stub { position: relative; width: 28cqw; flex: none; padding: 2.3cqw 1.8cqw 2.1cqw;
+  border-left: 0.3cqw dashed #bcb097; display: flex; flex-direction: column; align-items: center; text-align: center; }
+.tkt-stub::before, .tkt-stub::after { content: ""; position: absolute; left: -1.6cqw; width: 3.2cqw; height: 3.2cqw;
+  border-radius: 50%; background: #211844; }
+.tkt-stub::before { top: -1.6cqw; }
+.tkt-stub::after { bottom: -1.6cqw; }
+.tkt-admit { font-size: 1.05cqw; letter-spacing: 0.32em; font-weight: 700; }
+.tkt-big { margin: 0.7cqw 0 0.4cqw; }
+.tkt-big b { display: block; font-family: var(--font); font-size: 8.4cqw; line-height: 0.88; font-weight: 700; letter-spacing: -0.04em; }
+.tkt-big span { font-size: 1.05cqw; letter-spacing: 0.16em; font-weight: 700; color: #6a6250; }
+.tkt-bot { width: 11cqw; height: 11cqw; margin: 0.7cqw 0 0.9cqw; }
+.tkt-serial { font-size: 1cqw; letter-spacing: 0.1em; color: #4a4536; line-height: 1.55; margin-top: auto; }
+.tkt-barcode { width: 82%; height: 3cqw; margin-top: 0.9cqw;
+  background: repeating-linear-gradient(90deg, #111 0 0.22cqw, transparent 0.22cqw 0.4cqw, #111 0.4cqw 0.56cqw,
+    transparent 0.56cqw 0.92cqw, #111 0.92cqw 1.3cqw, transparent 1.3cqw 1.56cqw); }
+.tkt-foot { position: absolute; right: 4.4cqw; bottom: 1.1cqw; font-family: var(--mono); font-size: 1.02cqw;
+  letter-spacing: 0.04em; color: #efe6d0; opacity: 0.75; }
+
+.tkt-glare { position: absolute; inset: 0; border-radius: 14px; pointer-events: none; opacity: 0; transform: translateZ(80px);
+  transition: opacity .35s ease; mix-blend-mode: soft-light;
+  background: radial-gradient(26cqw 26cqw at var(--mx, 50%) var(--my, 50%), rgba(255,255,255,0.9), rgba(255,255,255,0) 60%); }
+.tkt-stage.is-live .tkt-glare { opacity: 0.8; }
+.tkt-flat { transform: none !important; transform-style: flat !important; transition: none !important;
+  box-shadow: 10px 12px 0 #111 !important; }
+.tkt-flat .tkt-glare { display: none; }

@@ -28,6 +28,7 @@ from . import keystore
 from .models import TailoredResume
 from .paths import data_dir, resource_dir
 from .resume import build_data, render_pdf, render_png
+from . import tracker
 from .sources import PRESETS, detect_source
 from .store import STATUSES, Store
 
@@ -181,6 +182,43 @@ def sources_detect(body: dict = Body(...)):
                                  "Workday, SmartRecruiters, Workable, BambooHR, Recruitee, GitHub listing repos, "
                                  "and any careers page that publishes JobPosting JSON-LD.")
     return Source(**found, enabled=True)
+
+
+# --- tracker import -----------------------------------------------------------------
+
+@app.post("/api/tracker/import")
+async def tracker_import(file: UploadFile = File(...)):
+    """Parse a tracker file and match it against the store. Writes nothing: the UI shows the
+    preview, then POSTs the rows it wants applied. No LLM call; the file never leaves the machine."""
+    data = await file.read()
+    if len(data) > 5 * 1024 * 1024:
+        raise HTTPException(413, "File too large (5 MB max).")
+    name = file.filename or "tracker.csv"
+    if not name.lower().endswith((".csv", ".tsv", ".txt", ".md")):
+        raise HTTPException(400, "Export your tracker as CSV or TSV (or a Markdown table) and upload that.")
+    rows, mapping = tracker.parse_tracker(data, name)
+    if not rows:
+        raise HTTPException(400, "Couldn't find company and role columns. Headers like 'Company' and "
+                                 "'Role' (or 'Title') are needed.")
+    if len(rows) > 5000:
+        raise HTTPException(413, "That's more than 5,000 rows; split the file.")
+    return {**tracker.preview(store, rows), "mapping": mapping}
+
+
+class TrackerApply(BaseModel):
+    rows: list[dict]
+
+
+@app.post("/api/tracker/import/apply")
+def tracker_import_apply(body: TrackerApply):
+    rows = []
+    for r in body.rows:
+        if not (r.get("company") and r.get("title")):
+            continue
+        rows.append({"company": str(r["company"]), "title": str(r["title"]), "location": str(r.get("location") or ""),
+                     "url": str(r.get("url") or ""), "status": tracker.norm_status(str(r.get("status") or "")),
+                     "applied_at": r.get("applied_at") if isinstance(r.get("applied_at"), (int, float)) else None})
+    return tracker.apply(store, rows)
 
 
 class SettingsView(BaseModel):

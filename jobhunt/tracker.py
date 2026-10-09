@@ -200,3 +200,62 @@ def parse_tracker(data: bytes, filename: str = "") -> tuple[list[dict], dict[str
             continue
         out.append(r)
     return out, mapping
+
+
+# --- matching + applying ---------------------------------------------------------------
+
+def _advances(cur: str, new: str) -> bool:
+    if new in TERMINAL:
+        return cur != new
+    if cur in TERMINAL:
+        return False          # the app's rejected/archived is the later word; don't resurrect
+    return RANK.get(new, 5) > RANK.get(cur, 0)
+
+
+def preview(store: Store, rows: list[dict]) -> dict:
+    """Match rows against the store without writing. Each row gains action: new | update | same | keep."""
+    existing = store.jobs(limit=10000)
+    out = []
+    for r in rows:
+        match = next((j for j in existing if same_position((r["company"], r["title"]), (j["company"], j["title"]))), None)
+        if match is None:
+            action = "new"
+        elif match["status"] == r["status"]:
+            action = "same"
+        elif _advances(match["status"], r["status"]):
+            action = "update"
+        else:
+            action = "keep"   # already further along in the app
+        out.append({**r, "action": action, "existing_id": match["id"] if match else None,
+                    "existing_status": match["status"] if match else None})
+    return {"rows": out, "counts": dict(Counter(r["action"] for r in out)), "total": len(out)}
+
+
+def apply(store: Store, rows: list[dict]) -> dict:
+    """Write the import: insert new jobs with their status, move matched ones forward.
+    Dates are set only when the file had one — never fabricated."""
+    counts = {"added": 0, "updated": 0, "skipped": 0}
+    for r in preview(store, rows)["rows"]:
+        if r["status"] not in IMPORT_STATUSES:
+            counts["skipped"] += 1
+            continue
+        if r["action"] == "new":
+            jid = job_id(r["company"], r["title"], r.get("location", ""))
+            if not store.has_job(jid):
+                store.insert_job({"id": jid, "company": r["company"], "title": r["title"],
+                                  "location": r.get("location", ""), "url": r.get("url", ""),
+                                  "source": SOURCE, "age_days": None})
+            fields: dict = {"status": r["status"]}
+            if r.get("applied_at"):
+                fields["applied_at"] = r["applied_at"]
+            store.update_job(jid, **fields)
+            counts["added"] += 1
+        elif r["action"] == "update":
+            fields = {"status": r["status"]}
+            if r.get("applied_at"):
+                fields["applied_at"] = r["applied_at"]
+            store.update_job(r["existing_id"], **fields)
+            counts["updated"] += 1
+        else:
+            counts["skipped"] += 1
+    return counts

@@ -134,7 +134,8 @@ LEVEL_TITLE = {
     "internship": re.compile(r"\b(intern|internship|co-?op|apprentice|placement|summer student)", re.I),
     "new_grad": re.compile(r"\b(new grad|graduate|early career|university|campus|entry|junior|associate)|\b(i|1)\b", re.I),
 }
-BOARD_KINDS = {"greenhouse", "lever", "ashby"}
+BOARD_KINDS = {"greenhouse", "lever", "ashby", "workday", "smartrecruiters", "workable", "bamboohr",
+               "recruitee", "careers_page"}
 
 
 def passes(row: dict, prefs: Preferences) -> tuple[bool, str]:

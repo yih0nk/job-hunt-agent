@@ -7,9 +7,12 @@ Supported:
                       e.g. SimplifyJobs/Summer2027-Internships, DereC4/internships-and-newgrad
   github_issues       open "New Internship" submission issues on a listing repo
                       (a leading indicator: they land hours-days before the README)
-  greenhouse / lever / ashby
-                      a single company's public job board API
+  greenhouse / lever / ashby / workday / smartrecruiters / workable / bamboohr / recruitee
+                      a single company's public job board API (Workday is the one POST)
+  careers_page        any careers page that embeds schema.org JobPosting JSON-LD
   early_career_radar  earlycareerradar.com public listings page (never its /api/)
+
+`detect_source(text)` turns a pasted careers URL into the right Source (see docs/sourcing.md).
 """
 from __future__ import annotations
 
@@ -19,7 +22,7 @@ import json
 import re
 
 from .models import Source
-from .net import fetch, fetch_json, html_to_text
+from .net import fetch, fetch_json, fetch_json_post, html_to_text
 
 # --- shared -------------------------------------------------------------------------
 
@@ -205,6 +208,191 @@ def fetch_ashby(src: Source) -> list[dict]:
     return rows
 
 
+# --- More company boards --------------------------------------------------------------
+# None of these fetch the JD up front unless the listing call already carries it: the
+# scorer's _ensure_description pulls it later, only for rows that survive the funnel.
+
+def _workday_parts(board: str) -> tuple[str, str, str]:
+    """board = "tenant|wd5|External_Careers" (the watchlist convention; '/' works too)."""
+    parts = [p.strip() for p in board.replace("/", "|").split("|") if p.strip()]
+    if len(parts) != 3:
+        raise ValueError(f"Workday board must be tenant|wdN|site, got {board!r}")
+    return parts[0], parts[1], parts[2]
+
+
+WD_POSTED = re.compile(r"(\d+)(\+?)\s*(day|hour|minute)", re.I)
+
+
+def workday_age(posted: str | None):
+    """'Posted Today' -> 0, 'Posted Yesterday' -> 1, 'Posted 3 Days Ago' -> 3, 'Posted 30+ Days Ago' -> 31."""
+    t = (posted or "").lower()
+    if not t:
+        return None
+    if "today" in t or "just" in t:
+        return 0.0
+    if "yesterday" in t:
+        return 1.0
+    m = WD_POSTED.search(t)
+    if not m:
+        return None
+    n = float(m.group(1)) + (1 if m.group(2) else 0)
+    unit = m.group(3)
+    return n / 24 if unit == "hour" else n / 1440 if unit == "minute" else n
+
+
+def fetch_workday(src: Source) -> list[dict]:
+    tenant, wd, site = _workday_parts(src.board)
+    host = f"https://{tenant}.{wd}.myworkdayjobs.com"
+    company = src.name or _title_from_slug(tenant)
+    rows, offset, limit = [], 0, 20
+    while True:
+        data = fetch_json_post(f"{host}/wday/cxs/{tenant}/{site}/jobs",
+                               {"appliedFacets": {}, "limit": limit, "offset": offset, "searchText": src.term or ""})
+        posts = data.get("jobPostings") or []
+        for j in posts:
+            path = j.get("externalPath", "")
+            rows.append({"company": company, "title": j.get("title", ""), "location": j.get("locationsText", ""),
+                         "url": f"{host}/{site}{path}" if path else "", "age_days": workday_age(j.get("postedOn"))})
+        offset += limit
+        if not posts or offset >= (data.get("total") or 0) or offset >= 2000:
+            break
+    return rows
+
+
+def fetch_smartrecruiters(src: Source) -> list[dict]:
+    company = src.name or _title_from_slug(src.board)
+    rows, offset = [], 0
+    while True:
+        data = fetch_json(f"https://api.smartrecruiters.com/v1/companies/{src.board}/postings?limit=100&offset={offset}")
+        items = data.get("content") or []
+        for j in items:
+            loc = j.get("location") or {}
+            place = ", ".join(filter(None, [loc.get("city"), loc.get("region"), loc.get("country")]))
+            if loc.get("remote"):
+                place = f"{place} (Remote)".strip()
+            rows.append({"company": (j.get("company") or {}).get("name") or company, "title": j.get("name", ""),
+                         "location": place, "url": f"https://jobs.smartrecruiters.com/{src.board}/{j.get('id')}",
+                         "age_days": days_since(j.get("releasedDate"))})
+        offset += 100
+        if not items or offset >= (data.get("totalFound") or 0) or offset >= 2000:
+            break
+    return rows
+
+
+def _place(loc, *keys: str) -> str:
+    if not isinstance(loc, dict):
+        return str(loc or "")
+    return ", ".join(filter(None, [loc.get(k) for k in keys]))
+
+
+def fetch_workable(src: Source) -> list[dict]:
+    data = fetch_json(f"https://apply.workable.com/api/v1/widget/accounts/{src.board}?details=true")
+    company = src.name or data.get("name") or _title_from_slug(src.board)
+    rows = []
+    for j in data.get("jobs", []):
+        place = _place(j.get("location"), "city", "region", "country")
+        if j.get("telecommuting") or j.get("remote"):
+            place = f"{place} (Remote)".strip()
+        rows.append({"company": company, "title": j.get("title", ""), "location": place,
+                     "url": j.get("url") or j.get("application_url", ""),
+                     "age_days": days_since(j.get("published_on")),
+                     "description": html_to_text(j.get("description") or "")})
+    return rows
+
+
+def fetch_bamboohr(src: Source) -> list[dict]:
+    data = fetch_json(f"https://{src.board}.bamboohr.com/careers/list")
+    company = src.name or _title_from_slug(src.board)
+    rows = []
+    for j in data.get("result") or []:
+        place = _place(j.get("location"), "city", "state", "country")
+        if j.get("isRemote"):
+            place = f"{place} (Remote)".strip()
+        rows.append({"company": company, "title": j.get("jobOpeningName", ""), "location": place,
+                     "url": f"https://{src.board}.bamboohr.com/careers/{j.get('id')}",
+                     "age_days": days_since(j.get("datePosted"))})
+    return rows
+
+
+def fetch_recruitee(src: Source) -> list[dict]:
+    data = fetch_json(f"https://{src.board}.recruitee.com/api/offers/")
+    company = src.name or _title_from_slug(src.board)
+    rows = []
+    for j in data.get("offers") or []:
+        place = ", ".join(filter(None, [j.get("city"), j.get("country")]))
+        if j.get("remote"):
+            place = f"{place} (Remote)".strip()
+        rows.append({"company": company, "title": j.get("title", ""), "location": place,
+                     "url": j.get("careers_url", ""), "age_days": days_since(j.get("published_at")),
+                     "description": html_to_text(j.get("description") or "")})
+    return rows
+
+
+# --- Any careers page with schema.org JobPosting JSON-LD ------------------------------
+# What Google Jobs indexes: a <script type="application/ld+json"> JobPosting per role, often on
+# the listing page too. The generic fallback for companies on a custom careers site.
+
+LDJSON = re.compile(r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>', re.S | re.I)
+
+
+def _job_postings(obj) -> list[dict]:
+    """Walk JSON-LD (objects, lists, @graph, ItemList) and collect every JobPosting."""
+    out: list[dict] = []
+    if isinstance(obj, list):
+        for o in obj:
+            out.extend(_job_postings(o))
+    elif isinstance(obj, dict):
+        t = obj.get("@type")
+        if "JobPosting" in (t if isinstance(t, list) else [t]):
+            out.append(obj)
+        for k in ("@graph", "itemListElement", "mainEntity", "item"):
+            if k in obj:
+                out.extend(_job_postings(obj[k]))
+    return out
+
+
+def _ld_location(j: dict) -> str:
+    locs = j.get("jobLocation") or []
+    names = []
+    for loc in locs if isinstance(locs, list) else [locs]:
+        a = loc.get("address", loc) if isinstance(loc, dict) else {}
+        if isinstance(a, str):
+            names.append(a)
+            continue
+        country = a.get("addressCountry")
+        names.append(", ".join(filter(None, [a.get("addressLocality"), a.get("addressRegion"),
+                                             country.get("name") if isinstance(country, dict) else country])))
+    place = "; ".join(n for n in names if n)
+    if str(j.get("jobLocationType", "")).upper() == "TELECOMMUTE":
+        place = f"{place} (Remote)".strip()
+    return place
+
+
+def postings_in_page(page: str) -> list[dict]:
+    out = []
+    for block in LDJSON.findall(page):
+        try:
+            out.extend(_job_postings(json.loads(block.strip())))
+        except ValueError:
+            continue
+    return out
+
+
+def fetch_careers_page(src: Source) -> list[dict]:
+    rows = []
+    for j in postings_in_page(fetch(src.url, timeout=45)):
+        org = j.get("hiringOrganization") or {}
+        rows.append({"company": src.name or (org.get("name") if isinstance(org, dict) else str(org)) or "",
+                     "title": j.get("title") or j.get("name") or "", "location": _ld_location(j),
+                     "url": j.get("url") or j.get("sameAs") or src.url, "age_days": days_since(j.get("datePosted")),
+                     "description": html_to_text(j.get("description") or "")})
+    return rows
+
+
+def _title_from_slug(slug: str) -> str:
+    return re.sub(r"[-_]+", " ", slug).strip().title()
+
+
 # --- Early Career Radar -------------------------------------------------------------
 
 ECR_JOB = re.compile(r'\{"id":"job_[0-9a-f]+".*?"dismissed":(?:true|false)\}')
@@ -237,8 +425,15 @@ FETCHERS = {
     "greenhouse": fetch_greenhouse,
     "lever": fetch_lever,
     "ashby": fetch_ashby,
+    "workday": fetch_workday,
+    "smartrecruiters": fetch_smartrecruiters,
+    "workable": fetch_workable,
+    "bamboohr": fetch_bamboohr,
+    "recruitee": fetch_recruitee,
+    "careers_page": fetch_careers_page,
     "early_career_radar": fetch_ecr,
 }
+BOARD_KINDS = {"greenhouse", "lever", "ashby", "workday", "smartrecruiters", "workable", "bamboohr", "recruitee"}
 
 
 def source_label(src: Source) -> str:
@@ -246,8 +441,10 @@ def source_label(src: Source) -> str:
         return src.name
     if src.kind in ("listing_repo", "github_issues"):
         return src.repo + (" (issues)" if src.kind == "github_issues" else "")
-    if src.kind in ("greenhouse", "lever", "ashby"):
+    if src.kind in BOARD_KINDS:
         return f"{src.board} ({src.kind})"
+    if src.kind == "careers_page":
+        return re.sub(r"^https?://(www\.)?", "", src.url).split("/")[0]
     return src.kind
 
 

@@ -20,7 +20,8 @@ export type Profile = {
   experience: Entry[]; voice: string; resume_rules: string; learned_answers: LearnedAnswer[]
 }
 
-export type SourceKind = 'listing_repo' | 'github_issues' | 'greenhouse' | 'lever' | 'ashby' | 'early_career_radar'
+export type SourceKind = 'listing_repo' | 'github_issues' | 'greenhouse' | 'lever' | 'ashby' | 'workday' | 'smartrecruiters'
+  | 'workable' | 'bamboohr' | 'recruitee' | 'careers_page' | 'early_career_radar'
 export type Source = {
   id?: string; kind: SourceKind; name: string; enabled: boolean
   repo?: string; branch?: string; file?: string; title_prefix?: string; term?: string
@@ -130,6 +131,7 @@ export const api = {
   prefs: () => req<Preferences>('GET', '/api/preferences'),
   savePrefs: (p: Preferences) => req<Preferences>('PUT', '/api/preferences', p),
   presets: () => req<Preset[]>('GET', '/api/presets'),
+  detectSource: (text: string) => req<Source>('POST', '/api/sources/detect', { text }),
   settings: () => req<SettingsView>('GET', '/api/settings'),
   saveSettings: (s: SettingsPatch) => req<SettingsView>('PUT', '/api/settings', s),
   usage: () => req<Usage>('GET', '/api/usage'),

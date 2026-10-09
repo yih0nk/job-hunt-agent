@@ -58,24 +58,44 @@ export function SearchForm({ prefs, onChange }: { prefs: Preferences; onChange: 
 
 const KIND_LABEL: Record<SourceKind, string> = {
   listing_repo: 'GitHub listing repo', github_issues: 'GitHub pending submissions',
-  greenhouse: 'Greenhouse board', lever: 'Lever board', ashby: 'Ashby board',
-  early_career_radar: 'Early Career Radar',
+  greenhouse: 'Greenhouse board', lever: 'Lever board', ashby: 'Ashby board', workday: 'Workday',
+  smartrecruiters: 'SmartRecruiters', workable: 'Workable', bamboohr: 'BambooHR', recruitee: 'Recruitee',
+  careers_page: 'Careers page (JSON-LD)', early_career_radar: 'Early Career Radar',
 }
+const MANUAL_KINDS: SourceKind[] = ['greenhouse', 'lever', 'ashby', 'workday', 'smartrecruiters', 'workable', 'bamboohr', 'recruitee', 'listing_repo']
 
 export function SourceList({ prefs, presets, onChange }: {
   prefs: Preferences; presets: Preset[]; onChange: (p: Preferences) => void
 }) {
-  const [kind, setKind] = useState<'greenhouse' | 'lever' | 'ashby' | 'listing_repo'>('greenhouse')
+  const [kind, setKind] = useState<SourceKind>('greenhouse')
   const [value, setValue] = useState('')
+  const [paste, setPaste] = useState('')
+  const [detected, setDetected] = useState<Source | null>(null)
+  const [detecting, setDetecting] = useState(false)
+  const [detectError, setDetectError] = useState<string | null>(null)
   const setSources = (s: Source[]) => onChange({ ...prefs, sources: s })
   const has = (p: Preset) => prefs.sources.some(s => s.kind === p.kind && (s.repo ?? '') === (p.repo ?? '') && (s.url ?? '') === (p.url ?? ''))
+  const already = (s: Source) => prefs.sources.some(x => x.kind === s.kind && (x.board ?? '') === (s.board ?? '')
+    && (x.repo ?? '') === (s.repo ?? '') && (x.url ?? '') === (s.url ?? ''))
 
+  // Paste any careers URL; the server works out the ATS and board, the user confirms.
+  const detect = async () => {
+    const t = paste.trim()
+    if (!t) return
+    setDetecting(true); setDetected(null); setDetectError(null)
+    try { setDetected(await api.detectSource(t)) } catch (e) { setDetectError((e as Error).message) } finally { setDetecting(false) }
+  }
+  const confirmDetected = () => {
+    if (!detected) return
+    setSources([...prefs.sources, { ...detected, id: uid(), enabled: true }])
+    setDetected(null); setPaste('')
+  }
   const add = () => {
     const v = value.trim()
     if (!v) return
     const src: Source = kind === 'listing_repo'
       ? { id: uid(), kind, name: v, enabled: true, repo: v.replace(/^https?:\/\/github\.com\//, '').replace(/\/$/, ''), branch: 'main', file: 'README.md' }
-      : { id: uid(), kind, name: v, enabled: true, board: v.toLowerCase().replace(/\s+/g, '') }
+      : { id: uid(), kind, name: v, enabled: true, board: kind === 'workday' ? v.replace(/\s+/g, '') : v.replace(/\s+/g, '') }
     setSources([...prefs.sources, src])
     setValue('')
   }
@@ -115,17 +135,37 @@ export function SourceList({ prefs, presets, onChange }: {
         </div>
       )}
       <div>
-        <div className="small muted" style={{ marginBottom: 6 }}>Watch a specific company or list</div>
+        <div className="small muted" style={{ marginBottom: 6 }}>Watch a company — paste its careers page or job board link</div>
         <div className="row">
-          <select style={{ width: 190 }} value={kind} onChange={e => setKind(e.target.value as typeof kind)}>
-            <option value="greenhouse">Greenhouse board</option>
-            <option value="lever">Lever board</option>
-            <option value="ashby">Ashby board</option>
-            <option value="listing_repo">GitHub listing repo</option>
+          <input className="grow" style={{ width: 'auto' }} value={paste} onChange={e => { setPaste(e.target.value); setDetected(null); setDetectError(null) }}
+            onKeyDown={e => e.key === 'Enter' && detect()}
+            placeholder="https://boards.greenhouse.io/stripe · jobs.lever.co/ramp · acme.wd5.myworkdayjobs.com/External · acme.com/careers" />
+          <button className="btn" disabled={detecting || !paste.trim()} onClick={detect}>{detecting ? <Spinner /> : 'Detect'}</button>
+        </div>
+        {detected && (
+          <div className="row" style={{ marginTop: 8 }}>
+            <span className="ok" style={{ padding: '6px 10px' }}>
+              Detected <b>{detected.name}</b> · {KIND_LABEL[detected.kind]}
+              <span className="muted small"> {detected.board || detected.repo || detected.url}</span>
+            </span>
+            {already(detected)
+              ? <span className="small muted">Already in your sources.</span>
+              : <button className="btn small pop" onClick={confirmDetected}>Add source</button>}
+          </div>
+        )}
+        {detectError && <div className="small" style={{ marginTop: 8 }}><ErrorBox error={detectError} /></div>}
+        <div className="small muted" style={{ marginBottom: 6, marginTop: 14 }}>Or add a board by its token</div>
+        <div className="row">
+          <select style={{ width: 190 }} value={kind} onChange={e => setKind(e.target.value as SourceKind)}>
+            {MANUAL_KINDS.map(k => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
           </select>
           <input className="grow" style={{ width: 'auto' }} value={value} onChange={e => setValue(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && add()}
-            placeholder={kind === 'listing_repo' ? 'owner/repo' : 'board name, e.g. stripe (from boards.greenhouse.io/stripe)'} />
+            placeholder={kind === 'listing_repo' ? 'owner/repo'
+              : kind === 'workday' ? 'tenant|wd5|site  (from tenant.wd5.myworkdayjobs.com/site)'
+                : kind === 'smartrecruiters' ? 'company id, e.g. Visa (from jobs.smartrecruiters.com/Visa)'
+                  : kind === 'greenhouse' ? 'board token, e.g. stripe (from boards.greenhouse.io/stripe)'
+                    : 'subdomain or board name'} />
           <button className="btn" onClick={add}>Add</button>
         </div>
       </div>

@@ -87,7 +87,8 @@ class Profile(BaseModel):
 
 # --- Preferences --------------------------------------------------------------------
 
-SourceKind = Literal["listing_repo", "github_issues", "greenhouse", "lever", "ashby", "early_career_radar"]
+SourceKind = Literal["listing_repo", "github_issues", "greenhouse", "lever", "ashby", "workday", "smartrecruiters",
+                     "workable", "bamboohr", "recruitee", "careers_page", "early_career_radar"]
 
 
 class Source(BaseModel):
@@ -100,10 +101,11 @@ class Source(BaseModel):
     branch: str = "main"
     file: str = "README.md"
     title_prefix: str = "New Internship"
-    term: str = ""
-    # greenhouse / lever / ashby: the company's board token (e.g. "stripe")
+    term: str = ""                       # github_issues: term filter; workday: optional searchText
+    # company boards: the board token (greenhouse "stripe", lever "ramp", ashby "openai",
+    # smartrecruiters "Visa", workable/bamboohr/recruitee subdomain). workday: "tenant|wd5|site".
     board: str = ""
-    # early_career_radar
+    # careers_page / early_career_radar: the page to read
     url: str = ""
     accept_tracks: list[str] = []
 

@@ -449,3 +449,107 @@ def test_local_model_scores_with_retry_on_bad_json(monkeypatch, profile):
 def test_local_needs_a_model(profile):
     with pytest.raises(llm.LLMError, match="local model"):
         llm.score(Settings(score_provider="local"), profile, Preferences(), {"company": "A", "title": "T"})
+
+
+# --- sourcing: new boards, JSON-LD, auto-detect --------------------------------------
+
+def _src(**kw):
+    from jobhunt.models import Source
+    return Source(**kw)
+
+
+def test_workday_age():
+    from jobhunt.sources import workday_age
+    assert workday_age("Posted Today") == 0 and workday_age("Posted Yesterday") == 1
+    assert workday_age("Posted 3 Days Ago") == 3 and workday_age("Posted 30+ Days Ago") == 31
+    assert workday_age("Posted 6 Hours Ago") == 0.25 and workday_age("") is None
+
+
+def test_fetch_workday_pages_and_urls(monkeypatch):
+    from jobhunt import sources
+    pages = {0: {"total": 25, "jobPostings": [{"title": f"SWE Intern {i}", "externalPath": f"/job/SF/SWE_{i}",
+                                               "locationsText": "San Francisco, CA", "postedOn": "Posted 2 Days Ago"} for i in range(20)]},
+             20: {"total": 25, "jobPostings": [{"title": f"SWE Intern {i}", "externalPath": f"/job/SF/SWE_{i}",
+                                                "locationsText": "Remote", "postedOn": "Posted Today"} for i in range(20, 25)]}}
+    calls = []
+    monkeypatch.setattr(sources, "fetch_json_post", lambda url, body: (calls.append((url, body)), pages[body["offset"]])[1])
+    rows = sources.fetch_source(_src(kind="workday", board="acme|wd5|External", name="Acme"))
+    assert len(rows) == 25 and len(calls) == 2
+    assert calls[0][0] == "https://acme.wd5.myworkdayjobs.com/wday/cxs/acme/External/jobs"
+    assert rows[0]["url"] == "https://acme.wd5.myworkdayjobs.com/External/job/SF/SWE_0"   # the shape jd.py resolves
+    assert rows[0]["age_days"] == 2 and rows[-1]["age_days"] == 0 and rows[0]["source_kind"] == "workday"
+
+
+def test_fetch_smartrecruiters_workable_bamboohr_recruitee(monkeypatch):
+    from jobhunt import sources
+    payloads = {
+        "smartrecruiters.com/v1/companies/Visa/postings": {"totalFound": 1, "content": [
+            {"id": "123", "name": "Software Engineer Intern", "releasedDate": "2026-10-01T00:00:00.000Z",
+             "location": {"city": "Austin", "region": "TX", "country": "us", "remote": False}, "company": {"name": "Visa"}}]},
+        "workable.com/api/v1/widget/accounts/acme": {"name": "Acme", "jobs": [
+            {"title": "ML Intern", "url": "https://apply.workable.com/acme/j/ABC/", "published_on": "2026-10-02",
+             "location": {"city": "Berlin", "country": "Germany"}, "telecommuting": True, "description": "<p>Do ML</p>"}]},
+        "acme.bamboohr.com/careers/list": {"result": [
+            {"id": 7, "jobOpeningName": "Data Engineer Intern", "location": {"city": "Denver", "state": "CO"}, "isRemote": False}]},
+        "acme.recruitee.com/api/offers/": {"offers": [
+            {"title": "Backend Intern", "careers_url": "https://acme.recruitee.com/o/backend", "city": "Amsterdam",
+             "country": "Netherlands", "remote": True, "published_at": "2026-10-03T10:00:00Z", "description": "<b>Go</b>"}]},
+    }
+    monkeypatch.setattr(sources, "fetch_json", lambda url, timeout=30: next(v for k, v in payloads.items() if k in url))
+    sr = sources.fetch_source(_src(kind="smartrecruiters", board="Visa"))
+    assert sr[0]["url"] == "https://jobs.smartrecruiters.com/Visa/123" and sr[0]["location"] == "Austin, TX, us"
+    wk = sources.fetch_source(_src(kind="workable", board="acme"))
+    assert wk[0]["company"] == "Acme" and wk[0]["location"] == "Berlin, Germany (Remote)" and wk[0]["description"] == "Do ML"
+    bh = sources.fetch_source(_src(kind="bamboohr", board="acme"))
+    assert bh[0]["url"] == "https://acme.bamboohr.com/careers/7" and bh[0]["location"] == "Denver, CO"
+    rc = sources.fetch_source(_src(kind="recruitee", board="acme"))
+    assert rc[0]["location"] == "Amsterdam, Netherlands (Remote)" and rc[0]["description"] == "Go"
+
+
+def test_careers_page_jsonld(monkeypatch):
+    from jobhunt import sources
+    page = """<html><script type="application/ld+json">{"@context":"https://schema.org","@graph":[
+      {"@type":"Organization","name":"Acme"},
+      {"@type":"JobPosting","title":"Software Engineer Intern","datePosted":"2026-10-04","url":"https://acme.com/jobs/1",
+       "hiringOrganization":{"@type":"Organization","name":"Acme"},
+       "jobLocation":{"@type":"Place","address":{"addressLocality":"Seattle","addressRegion":"WA","addressCountry":"US"}},
+       "description":"<p>Build things</p>"}]}</script>
+    <script type="application/ld+json">{"@type":"ItemList","itemListElement":[{"@type":"ListItem","item":
+      {"@type":"JobPosting","title":"Remote SRE Intern","jobLocationType":"TELECOMMUTE","datePosted":"2026-10-05"}}]}</script></html>"""
+    monkeypatch.setattr(sources, "fetch", lambda url, timeout=30: page)
+    rows = sources.fetch_source(_src(kind="careers_page", url="https://acme.com/careers"))
+    assert [r["title"] for r in rows] == ["Software Engineer Intern", "Remote SRE Intern"]
+    assert rows[0]["company"] == "Acme" and rows[0]["location"] == "Seattle, WA, US" and rows[0]["description"] == "Build things"
+    assert rows[1]["location"] == "(Remote)" and rows[0]["source"] == "acme.com"
+
+
+def test_detect_source_url_shapes():
+    from jobhunt.sources import detect_source as d
+    assert d("https://boards.greenhouse.io/stripe/jobs/123", sniff=False) == {"kind": "greenhouse", "board": "stripe", "name": "Stripe"}
+    assert d("https://job-boards.greenhouse.io/anthropic", sniff=False)["board"] == "anthropic"
+    assert d("https://boards.greenhouse.io/embed/job_board?for=xai", sniff=False)["board"] == "xai"
+    assert d("https://jobs.lever.co/ramp/abc", sniff=False)["kind"] == "lever"
+    assert d("https://jobs.ashbyhq.com/openai", sniff=False) == {"kind": "ashby", "board": "openai", "name": "Openai"}
+    assert d("https://acme.wd5.myworkdayjobs.com/en-US/External_Careers/job/x", sniff=False)["board"] == "acme|wd5|External_Careers"
+    assert d("https://jobs.smartrecruiters.com/Visa/123", sniff=False)["board"] == "Visa"
+    assert d("https://apply.workable.com/acme/j/ABC", sniff=False)["kind"] == "workable"
+    assert d("https://acme.bamboohr.com/careers", sniff=False)["kind"] == "bamboohr"
+    assert d("https://acme.recruitee.com/o/x", sniff=False)["kind"] == "recruitee"
+    assert d("https://github.com/SimplifyJobs/New-Grad-Positions", sniff=False)["repo"] == "SimplifyJobs/New-Grad-Positions"
+    assert d("https://acme.com/careers", sniff=False) is None and d("", sniff=False) is None
+
+
+def test_detect_source_sniffs_custom_pages(monkeypatch):
+    from jobhunt import sources
+    pages = {"https://a.com/careers": '<iframe src="https://jobs.ashbyhq.com/a-co"></iframe>',
+             "https://b.com/jobs": '<script type="application/ld+json">{"@type":"JobPosting","title":"x"}</script>',
+             "https://c.com/": "<html>nothing here</html>"}
+    monkeypatch.setattr(sources, "fetch", lambda url, timeout=30: pages[url])
+    assert sources.detect_source("https://a.com/careers") == {"kind": "ashby", "board": "a-co", "name": "A Co"}
+    assert sources.detect_source("https://b.com/jobs") == {"kind": "careers_page", "url": "https://b.com/jobs", "name": "B"}
+    assert sources.detect_source("https://c.com/") is None
+
+
+def test_norm_company_ignores_legal_suffixes():
+    assert filters.same_position(("Stripe, Inc.", "SWE Intern"), ("Stripe", "Software Engineer Intern"))
+    assert filters.same_position(("Acme Corp", "Data Engineer Intern"), ("ACME (US) LLC", "Data Engineering Intern"))

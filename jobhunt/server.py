@@ -245,6 +245,8 @@ class SettingsView(BaseModel):
     draft_provider: str
     local_url: str
     local_model: str
+    spend_cap_usd: float
+    spend_cap_per: str
 
 
 def _settings_view(s: Settings) -> SettingsView:
@@ -252,7 +254,8 @@ def _settings_view(s: Settings) -> SettingsView:
                         key_in_keychain=bool(s.api_key) and keystore.get() == s.api_key,
                         model=s.model, score_model=s.score_model, effort=s.effort,
                         auto_run_hours=s.auto_run_hours, logos=s.logos, score_provider=s.score_provider,
-                        draft_provider=s.draft_provider, local_url=s.local_url, local_model=s.local_model)
+                        draft_provider=s.draft_provider, local_url=s.local_url, local_model=s.local_model,
+                        spend_cap_usd=s.spend_cap_usd, spend_cap_per=s.spend_cap_per)
 
 
 @app.get("/api/settings")
@@ -271,6 +274,8 @@ class SettingsIn(BaseModel):
     draft_provider: Optional[str] = None
     local_url: Optional[str] = None
     local_model: Optional[str] = None
+    spend_cap_usd: Optional[float] = None
+    spend_cap_per: Optional[str] = None
 
 
 @app.put("/api/settings")
@@ -296,6 +301,10 @@ def put_settings(body: SettingsIn) -> SettingsView:
         s.local_url = body.local_url.strip()
     if body.local_model is not None:
         s.local_model = body.local_model.strip()
+    if body.spend_cap_usd is not None:
+        s.spend_cap_usd = max(0.0, min(10000.0, float(body.spend_cap_usd)))
+    if body.spend_cap_per in ("run", "day"):
+        s.spend_cap_per = body.spend_cap_per
     store.put_settings(s)
     return _settings_view(s)
 

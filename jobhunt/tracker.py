@@ -259,3 +259,43 @@ def apply(store: Store, rows: list[dict]) -> dict:
         else:
             counts["skipped"] += 1
     return counts
+
+
+# --- export ------------------------------------------------------------------------
+# Applications only (applied and later). The headers are ones the importer maps back, and
+# dates are ISO, so an export re-imports cleanly after editing anywhere.
+
+EXPORT_STATUSES = ["applied", "interviewing", "offer", "rejected", "archived"]
+EXPORT_COLUMNS = ["Company", "Role", "Location", "Status", "Applied", "Link", "Score", "Source", "Notes"]
+
+
+def export_rows(store: Store) -> list[list[str]]:
+    """Newest application first (undated ones last), then by company — a stable, readable order."""
+    rows = []
+    jobs = sorted(store.jobs(EXPORT_STATUSES, limit=10000),
+                  key=lambda j: (-(j.get("applied_at") or 0), j["company"].lower(), j["title"].lower()))
+    for j in jobs:
+        applied = dt.datetime.fromtimestamp(j["applied_at"], dt.timezone.utc).strftime("%Y-%m-%d") if j.get("applied_at") else ""
+        rows.append([j["company"], j["title"], j.get("location") or "", j["status"], applied,
+                     j.get("resolved_url") or j.get("url") or "", str(j["score"]) if j.get("score") is not None else "",
+                     j.get("source") or "", (j.get("notes") or "").replace("\n", " ")])
+    return rows
+
+
+def to_csv(rows: list[list[str]]) -> str:
+    out = io.StringIO()
+    w = csv.writer(out, lineterminator="\n")
+    w.writerow(EXPORT_COLUMNS)
+    w.writerows(rows)
+    return out.getvalue()
+
+
+def to_markdown(rows: list[list[str]]) -> str:
+    esc = lambda c: c.replace("|", "\\|")
+    lines = ["| " + " | ".join(EXPORT_COLUMNS) + " |", "|" + "---|" * len(EXPORT_COLUMNS)]
+    for r in rows:
+        r = list(r)
+        if r[5]:
+            r[1] = f"[{esc(r[1])}]({r[5]})"     # role links to the posting; the importer reads it back
+        lines.append("| " + " | ".join(esc(c) if i != 1 else c for i, c in enumerate(r)) + " |")
+    return "\n".join(lines) + "\n"

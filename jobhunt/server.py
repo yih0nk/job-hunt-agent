@@ -205,6 +205,17 @@ async def tracker_import(file: UploadFile = File(...)):
     return {**tracker.preview(store, rows), "mapping": mapping}
 
 
+@app.get("/api/tracker/export")
+def tracker_export(format: str = "csv"):
+    """Your applications as CSV or Markdown — headers the importer understands, so it round-trips."""
+    rows = tracker.export_rows(store)
+    if format == "md":
+        return Response(tracker.to_markdown(rows), media_type="text/markdown; charset=utf-8",
+                        headers={"Content-Disposition": 'attachment; filename="applications.md"'})
+    return Response(tracker.to_csv(rows), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": 'attachment; filename="applications.csv"'})
+
+
 class TrackerApply(BaseModel):
     rows: list[dict]
 

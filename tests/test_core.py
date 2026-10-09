@@ -553,3 +553,86 @@ def test_detect_source_sniffs_custom_pages(monkeypatch):
 def test_norm_company_ignores_legal_suffixes():
     assert filters.same_position(("Stripe, Inc.", "SWE Intern"), ("Stripe", "Software Engineer Intern"))
     assert filters.same_position(("Acme Corp", "Data Engineer Intern"), ("ACME (US) LLC", "Data Engineering Intern"))
+
+
+# --- tracker import / export ----------------------------------------------------------
+
+def test_tracker_parse_csv_markdown_and_lines():
+    from jobhunt import tracker
+    csv_rows, mapping = tracker.parse_tracker(
+        b"Employer,Position,Where,Stage,Date Applied,Link\n"
+        b"Stripe,Software Engineer Intern,SF,Phone screen,2026-09-20,https://stripe.com/j/1\n"
+        b"Ramp,SWE Intern,NYC,Rejected,09/25/2026,\n"
+        b"Ramp,Software Engineering Intern,NYC,applied,,\n"      # same position as the row above: dropped
+        b"Acme,ML Intern,,,,\n", "apps.csv")
+    assert mapping == {"Employer": "company", "Position": "title", "Where": "location", "Stage": "status",
+                       "Date Applied": "applied_at", "Link": "url"}
+    assert [(r["company"], r["status"]) for r in csv_rows] == [("Stripe", "interviewing"), ("Ramp", "rejected"), ("Acme", "applied")]
+    import datetime as _dt
+    utc = lambda y, m, d: _dt.datetime(y, m, d, 12, tzinfo=_dt.timezone.utc).timestamp()   # noon UTC
+    assert csv_rows[0]["applied_at"] == utc(2026, 9, 20) and csv_rows[1]["applied_at"] == utc(2026, 9, 25) and csv_rows[2]["applied_at"] is None
+    assert csv_rows[0]["url"] == "https://stripe.com/j/1"
+    md_rows, _ = tracker.parse_tracker(b"| Company | Role | Status |\n|---|---|---|\n"
+                                       b"| [Cohere](https://cohere.com) | [Research Intern](https://cohere.com/j/9) | Offer! |\n", "t.md")
+    assert md_rows[0]["url"] == "https://cohere.com/j/9" and md_rows[0]["status"] == "offer"
+    line_rows, _ = tracker.parse_tracker(b"Figma - Product Eng Intern - withdrawn\nNotion | SWE Intern\n")
+    assert [(r["company"], r["status"]) for r in line_rows] == [("Figma", "archived"), ("Notion", "applied")]
+
+
+def test_tracker_status_vocabulary():
+    from jobhunt.tracker import norm_status as n
+    assert n("OA sent") == "interviewing" and n("Final round") == "interviewing" and n("Hired!") == "offer"
+    assert n("Rejected after interview") == "rejected" and n("Ghosted") == "rejected"
+    assert n("") == "applied" and n("Submitted ✅") == "applied" and n("Not applying") == "archived"
+
+
+def test_tracker_import_feeds_scan_dedup(monkeypatch, store):
+    from jobhunt import tracker
+    from jobhunt.models import Source
+    rows, _ = tracker.parse_tracker(b"Company,Role,Status\nStripe,Software Engineer Intern,applied\nRamp,SWE Intern,interview\n")
+    assert tracker.apply(store, rows) == {"added": 2, "updated": 0, "skipped": 0}
+    jobs = {j["company"]: j for j in store.jobs()}
+    assert jobs["Stripe"]["status"] == "applied" and jobs["Ramp"]["status"] == "interviewing"
+    assert jobs["Stripe"]["source"] == "tracker import" and jobs["Stripe"]["applied_at"] is None   # no date in the file: none invented
+    # A second import of the same file changes nothing.
+    assert tracker.apply(store, rows) == {"added": 0, "updated": 0, "skipped": 2}
+    # The scanner now skips those positions, even with different wording, and still takes new ones.
+    store.put_doc("preferences", Preferences(sources=[Source(kind="greenhouse", board="stripe")]))
+    monkeypatch.setattr(pipeline, "fetch_source", lambda src: [
+        {"company": "Stripe, Inc.", "title": "Software Engineering Intern, Summer 2027", "location": "", "url": "", "age_days": 1, "source_kind": "greenhouse"},
+        {"company": "Stripe", "title": "Software Engineer Internship (Summer 2027)", "location": "", "url": "", "age_days": 1, "source_kind": "greenhouse"},
+        {"company": "Figma", "title": "Software Engineer Intern", "location": "", "url": "", "age_days": 1, "source_kind": "greenhouse"}])
+    counts = pipeline.scan(store)
+    assert counts["already_tracked"] == 2 and counts["new"] == 1
+
+
+def test_tracker_import_never_regresses_a_status(store):
+    from jobhunt import tracker
+    store.insert_job({"id": "j1", "company": "Stripe", "title": "SWE Intern"})
+    store.update_job("j1", status="offer")
+    back = [{"company": "Stripe", "title": "Software Engineer Intern", "location": "", "url": "", "status": "applied", "applied_at": None}]
+    assert tracker.preview(store, back)["rows"][0]["action"] == "keep"
+    assert tracker.apply(store, back) == {"added": 0, "updated": 0, "skipped": 1} and store.job("j1")["status"] == "offer"
+    done = [{**back[0], "status": "rejected"}]
+    assert tracker.preview(store, done)["rows"][0]["action"] == "update"
+    tracker.apply(store, done)
+    assert store.job("j1")["status"] == "rejected"
+
+
+def test_tracker_export_round_trips_csv_and_markdown(store):
+    from jobhunt import tracker
+    rows, _ = tracker.parse_tracker(b"Company,Role,Location,Status,Applied,Link\n"
+                                    b"Stripe,Software Engineer Intern,SF,interviewing,2026-09-20,https://stripe.com/j/1\n"
+                                    b"Ramp,SWE Intern,NYC,rejected,,\n")
+    tracker.apply(store, rows)
+    store.insert_job({"id": "d1", "company": "Figma", "title": "PM Intern"})       # drafted: not an application yet
+    store.update_job("d1", status="drafted")
+    out = tracker.export_rows(store)
+    assert [r[0] for r in out] == ["Stripe", "Ramp"] and out[0][3] == "interviewing" and out[0][4] == "2026-09-20"
+    for text, name in ((tracker.to_csv(out), "a.csv"), (tracker.to_markdown(out), "a.md")):
+        back, mapping = tracker.parse_tracker(text.encode(), name)
+        assert mapping["Company"] == "company" and mapping["Applied"] == "applied_at" and mapping["Link"] == "url"
+        assert [(r["company"], r["title"], r["status"]) for r in back] == [("Stripe", "Software Engineer Intern", "interviewing"),
+                                                                            ("Ramp", "SWE Intern", "rejected")]
+        assert back[0]["url"] == "https://stripe.com/j/1" and back[0]["applied_at"] == rows[0]["applied_at"]
+        assert tracker.preview(store, back)["counts"] == {"same": 2}           # re-importing an export changes nothing

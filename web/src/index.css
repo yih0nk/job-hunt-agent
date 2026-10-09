@@ -241,6 +241,13 @@ details.fold > .fold-body { padding: 0 16px 16px; }
   box-shadow: 2px 2px 0 var(--ink); }
 .tile:hover { transform: translate(-1px, -1px); box-shadow: 3px 3px 0 var(--ink); }
 .tile .t { font-weight: 700; font-size: 13px; }
+/* tracker import preview */
+.import-scroll { max-height: 320px; overflow: auto; border: 1.5px solid var(--line); border-radius: var(--radius); }
+.import-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.import-table th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted);
+  padding: 8px 10px; border-bottom: var(--hair); position: sticky; top: 0; background: var(--panel); }
+.import-table td { padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.import-table tr.muted td { opacity: 0.55; }
 
 /* --- onboarding + misc ------------------------------------------------------------ */
 .onboard { max-width: 680px; margin: 48px auto; padding: 0 16px; }

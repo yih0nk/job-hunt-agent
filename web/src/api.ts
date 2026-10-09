@@ -90,6 +90,14 @@ export type AppState = {
   progress: Progress; data_dir: string
 }
 export type Preset = Source & { for: Level[] }
+export type TrackerRow = {
+  company: string; title: string; location: string; url: string; status: Status; raw_status: string
+  applied_at: number | null; action: 'new' | 'update' | 'same' | 'keep'
+  existing_id: string | null; existing_status: Status | null
+}
+export type TrackerPreview = { rows: TrackerRow[]; counts: Partial<Record<TrackerRow['action'], number>>; total: number
+  mapping: Record<string, string> }
+export type TrackerApplied = { added: number; updated: number; skipped: number }
 
 function token(): string {
   const meta = document.querySelector('meta[name="jobhunt-token"]') as HTMLMetaElement | null
@@ -132,6 +140,17 @@ export const api = {
   savePrefs: (p: Preferences) => req<Preferences>('PUT', '/api/preferences', p),
   presets: () => req<Preset[]>('GET', '/api/presets'),
   detectSource: (text: string) => req<Source>('POST', '/api/sources/detect', { text }),
+  importTracker: (f: File) => {
+    const fd = new FormData()
+    fd.append('file', f)
+    return req<TrackerPreview>('POST', '/api/tracker/import', fd)
+  },
+  applyTrackerImport: (rows: TrackerRow[]) => req<TrackerApplied>('POST', '/api/tracker/import/apply', { rows }),
+  exportTracker: async (format: 'csv' | 'md') => {
+    const r = await fetch(`/api/tracker/export?format=${format}`, { headers: { 'x-jobhunt-token': token() } })
+    if (!r.ok) throw new ApiError(`${r.status} ${r.statusText}`)
+    return r.text()
+  },
   settings: () => req<SettingsView>('GET', '/api/settings'),
   saveSettings: (s: SettingsPatch) => req<SettingsView>('PUT', '/api/settings', s),
   usage: () => req<Usage>('GET', '/api/usage'),

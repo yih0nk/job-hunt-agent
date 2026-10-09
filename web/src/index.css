@@ -332,12 +332,12 @@ details.fold > .fold-body { padding: 0 16px 16px; }
 .tkt-stage { width: 100%; max-width: 960px; perspective: 1700px; perspective-origin: 50% 42%; }
 .tkt-card { position: relative; width: 100%; aspect-ratio: 1200 / 630; container-type: inline-size;
   border: 3px solid #111; border-radius: 16px;
-  background: radial-gradient(130% 125% at 50% -10%, #2d2256 0%, #211844 58%, #181030 100%);
+  background: radial-gradient(130% 125% at 50% -10%, #1f5a44 0%, #123f30 58%, #0c2b21 100%);
   transform-style: preserve-3d; transform: rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
   transition: transform .5s cubic-bezier(.2,.8,.2,1), box-shadow .5s ease; will-change: transform;
-  box-shadow: 10px 12px 0 #111, 0 34px 70px -24px rgba(16,8,46,.85); }
+  box-shadow: 10px 12px 0 #111, 0 34px 70px -24px rgba(8,30,22,.85); }
 .tkt-stage.is-live .tkt-card { transition: transform .08s linear, box-shadow .2s ease;
-  box-shadow: 14px 18px 0 #111, 0 48px 94px -26px rgba(16,8,46,.95); }
+  box-shadow: 14px 18px 0 #111, 0 48px 94px -26px rgba(8,30,22,.95); }
 @media (prefers-reduced-motion: reduce) { .tkt-card { transition: none; } }
 
 /* the paper ticket, floating just above the mat */
@@ -347,7 +347,7 @@ details.fold > .fold-body { padding: 0 16px 16px; }
 
 .tkt-main { flex: 1; min-width: 0; padding: 2.3cqw 2.7cqw 2.1cqw; display: flex; flex-direction: column; }
 .tkt-band { display: flex; justify-content: space-between; font-size: 1.1cqw; letter-spacing: 0.16em; font-weight: 700; }
-.tkt-band span:last-child { color: #7a4dff; }
+.tkt-band span:last-child { color: #1f6f52; }
 .tkt-title { font-family: var(--font); font-weight: 700; font-size: 4.1cqw; line-height: 0.95;
   letter-spacing: -0.03em; margin: 0.9cqw 0 1.3cqw; }
 .tkt-rows { font-size: 1.3cqw; line-height: 1.72; }
@@ -355,7 +355,7 @@ details.fold > .fold-body { padding: 0 16px 16px; }
 .tkt-row > span:first-child { letter-spacing: 0.05em; }
 .tkt-dots { flex: 1; border-bottom: 0.14cqw dotted #bcb097; transform: translateY(-0.35cqw); }
 .tkt-row b { font-weight: 700; }
-.tkt-hl { background: #cbb2ff; padding: 0 0.5cqw; border-radius: 0.3cqw; }
+.tkt-hl { background: #9fdcbf; padding: 0 0.5cqw; border-radius: 0.3cqw; }
 .tkt-rule { border-top: 0.18cqw dashed #1a1a1a; margin: 0.7cqw 0; }
 .tkt-names { font-size: 0.95cqw; color: #6a6250; margin-top: 0.55cqw; letter-spacing: 0.03em; }
 .tkt-verdict { margin-top: auto; background: #141414; color: #fdf6e8; border-radius: 0.9cqw; padding: 1cqw 1.4cqw; }
@@ -367,7 +367,7 @@ details.fold > .fold-body { padding: 0 16px 16px; }
 .tkt-stub { position: relative; width: 28cqw; flex: none; padding: 2.3cqw 1.8cqw 2.1cqw;
   border-left: 0.3cqw dashed #bcb097; display: flex; flex-direction: column; align-items: center; text-align: center; }
 .tkt-stub::before, .tkt-stub::after { content: ""; position: absolute; left: -1.6cqw; width: 3.2cqw; height: 3.2cqw;
-  border-radius: 50%; background: #211844; }
+  border-radius: 50%; background: #123f30; }
 .tkt-stub::before { top: -1.6cqw; }
 .tkt-stub::after { bottom: -1.6cqw; }
 .tkt-admit { font-size: 1.05cqw; letter-spacing: 0.32em; font-weight: 700; }

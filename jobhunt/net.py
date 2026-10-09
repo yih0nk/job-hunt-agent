@@ -26,6 +26,15 @@ def fetch_json(url: str, timeout: int = 30):
     return json.loads(fetch(url, timeout))
 
 
+def fetch_json_post(url: str, body: dict, timeout: int = 30):
+    """POST a JSON body and parse the JSON reply (Workday's listing API is POST-only)."""
+    req = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST",
+                                 headers={"User-Agent": UA, "Content-Type": "application/json",
+                                          "Accept": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout, context=ssl_ctx()) as r:
+        return json.loads(r.read().decode("utf-8", "replace"))
+
+
 def final_url(url: str, timeout: int = 20) -> str:
     req = urllib.request.Request(url, headers={"User-Agent": UA})
     with urllib.request.urlopen(req, timeout=timeout, context=ssl_ctx()) as r:

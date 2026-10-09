@@ -165,8 +165,14 @@ ROLE_STOP = {"intern", "internship", "summer", "winter", "fall", "spring", "co",
              "start", "undergraduate", "new", "grad", "graduate", "i", "ii", "iii", "junior", "entry", "level"}
 
 
+LEGAL_SUFFIX = re.compile(r"[,.\s]+(inc|llc|ltd|limited|corp|corporation|co|company|plc|gmbh|ag|sa|ab|pty|lp)\.?$")
+
+
 def _norm_company(c: str) -> str:
-    return re.sub(r"[^a-z0-9]", "", re.sub(r"\(.*?\)", "", c.lower()))
+    """'Stripe, Inc.' / 'Stripe Inc' / 'Stripe (US)' all normalize to 'stripe'."""
+    s = re.sub(r"\(.*?\)", "", c.lower()).strip()
+    s = LEGAL_SUFFIX.sub("", s)
+    return re.sub(r"[^a-z0-9]", "", s)
 
 
 def _norm_role(r: str) -> set[str]:

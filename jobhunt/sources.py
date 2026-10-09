@@ -457,6 +457,73 @@ def fetch_source(src: Source) -> list[dict]:
     return rows
 
 
+# --- ATS auto-detect ------------------------------------------------------------------
+# Paste any careers URL -> the right Source. URL shapes first; for a custom careers site,
+# one page fetch looks for an embedded board, then for JobPosting JSON-LD.
+
+DETECT: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"(?:boards|job-boards)\.greenhouse\.io/(?:embed/job_(?:board|app)/?\?(?:[^#]*&)?for=)?([A-Za-z0-9_-]+)"), "greenhouse"),
+    (re.compile(r"greenhouse\.io/[^#]*?[?&]for=([A-Za-z0-9_-]+)"), "greenhouse"),
+    (re.compile(r"jobs\.lever\.co/([A-Za-z0-9_-]+)"), "lever"),
+    (re.compile(r"jobs\.ashbyhq\.com/([A-Za-z0-9_.-]+)"), "ashby"),
+    (re.compile(r"api\.ashbyhq\.com/posting-api/job-board/([A-Za-z0-9_.-]+)"), "ashby"),
+    (re.compile(r"https?://([\w-]+)\.(wd\d+)\.myworkdayjobs\.com/(?:wday/cxs/[\w-]+/)?(?:[a-z]{2}-[A-Z]{2}/)?([^/?#]+)"), "workday"),
+    (re.compile(r"(?:jobs|careers)\.smartrecruiters\.com/([A-Za-z0-9_-]+)"), "smartrecruiters"),
+    (re.compile(r"apply\.workable\.com/([A-Za-z0-9_-]+)"), "workable"),
+    (re.compile(r"https?://([\w-]+)\.workable\.com"), "workable"),
+    (re.compile(r"https?://([\w-]+)\.bamboohr\.com"), "bamboohr"),
+    (re.compile(r"https?://([\w-]+)\.recruitee\.com"), "recruitee"),
+    (re.compile(r"github\.com/([\w.-]+/[\w.-]+)"), "listing_repo"),
+]
+NOT_BOARDS = {"embed", "jobs", "job", "api", "www", "careers", "en", "wday"}
+
+
+def _match(text: str, skip_repo: bool = False) -> dict | None:
+    for rx, kind in DETECT:
+        if skip_repo and kind == "listing_repo":
+            continue
+        m = rx.search(text)
+        if not m:
+            continue
+        if kind == "listing_repo":
+            repo = m.group(1).removesuffix(".git")
+            return {"kind": kind, "repo": repo, "name": repo, "branch": "main", "file": "README.md"}
+        if kind == "workday":
+            tenant, wd, site = m.group(1), m.group(2), m.group(3)
+            if site.lower() in NOT_BOARDS:
+                continue
+            return {"kind": kind, "board": f"{tenant}|{wd}|{site}", "name": _title_from_slug(tenant)}
+        board = m.group(1)
+        if board.lower() in NOT_BOARDS:
+            continue
+        return {"kind": kind, "board": board, "name": _title_from_slug(board)}
+    return None
+
+
+def detect_source(text: str, sniff: bool = True) -> dict | None:
+    """A careers URL (or board link) -> {kind, board|repo|url, name}, or None if unrecognized.
+    With sniff, an unrecognized http URL is fetched once to find an embedded board or JSON-LD."""
+    t = (text or "").strip()
+    if not t:
+        return None
+    found = _match(t)
+    if found:
+        return found
+    if not sniff or not t.startswith("http"):
+        return None
+    try:
+        page = fetch(t, timeout=20)
+    except Exception:
+        return None
+    found = _match(page, skip_repo=True)
+    if found:
+        return found
+    if postings_in_page(page):
+        host = re.sub(r"^https?://(www\.)?", "", t).split("/")[0]
+        return {"kind": "careers_page", "url": t, "name": _title_from_slug(host.split(".")[0])}
+    return None
+
+
 # Presets offered in onboarding. Users can add any repo/board themselves.
 PRESETS: list[dict] = [
     {"kind": "listing_repo", "name": "SimplifyJobs Summer 2027 Internships",

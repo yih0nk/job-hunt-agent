@@ -28,7 +28,7 @@ from . import keystore
 from .models import TailoredResume
 from .paths import data_dir, resource_dir
 from .resume import build_data, render_pdf, render_png
-from .sources import PRESETS
+from .sources import PRESETS, detect_source
 from .store import STATUSES, Store
 
 TOKEN = os.environ.get("JOBHUNT_TOKEN") or secrets.token_urlsafe(24)
@@ -169,6 +169,18 @@ def put_prefs(p: Preferences) -> Preferences:
 @app.get("/api/presets")
 def presets():
     return PRESETS
+
+
+@app.post("/api/sources/detect")
+def sources_detect(body: dict = Body(...)):
+    """Paste any careers URL -> a proposed Source. Not saved: the UI shows what was detected
+    and the user confirms before it joins their preferences."""
+    found = detect_source(str(body.get("text", "")))
+    if not found:
+        raise HTTPException(404, "Couldn't recognize a job board there. Supported: Greenhouse, Lever, Ashby, "
+                                 "Workday, SmartRecruiters, Workable, BambooHR, Recruitee, GitHub listing repos, "
+                                 "and any careers page that publishes JobPosting JSON-LD.")
+    return Source(**found, enabled=True)
 
 
 class SettingsView(BaseModel):

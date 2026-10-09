@@ -636,3 +636,31 @@ def test_tracker_export_round_trips_csv_and_markdown(store):
                                                                             ("Ramp", "SWE Intern", "rejected")]
         assert back[0]["url"] == "https://stripe.com/j/1" and back[0]["applied_at"] == rows[0]["applied_at"]
         assert tracker.preview(store, back)["counts"] == {"same": 2}           # re-importing an export changes nothing
+
+
+# --- spend cap ----------------------------------------------------------------------
+
+def test_spend_cap_stops_scoring_and_leaves_the_rest_new(monkeypatch, store):
+    from jobhunt.pipeline import Budget
+    for i in range(5):
+        store.insert_job({"id": f"j{i}", "company": f"C{i}", "title": "SWE Intern"})
+    def fake_score(st, jid):      # each score costs 3 cents
+        st.log_usage(jid, "score", "claude-sonnet-5", {"input_tokens": 1, "output_tokens": 1}, 0.03)
+        st.update_job(jid, status="review", score=80)
+        return {"status": "review"}
+    monkeypatch.setattr(pipeline, "score_one", fake_score)
+    budget = Budget(store, Settings(spend_cap_usd=0.05, spend_cap_per="run"), run_started=0)
+    counts = pipeline.score_new(store, budget=budget, workers=1)
+    assert counts["scored"] == 2 and counts["capped"] == 3 and budget.hit
+    assert len(store.jobs(["new"])) == 3            # untouched, scored on a later run
+    assert pipeline.score_new(store, budget=Budget(store, Settings(), 0), workers=1)["scored"] == 3   # no cap: finishes
+
+
+def test_spend_cap_per_run_vs_per_day(store):
+    from jobhunt.pipeline import Budget
+    import time as _t
+    store.log_usage(None, "score", "claude-sonnet-5", {"input_tokens": 1, "output_tokens": 1}, 0.40)   # earlier today
+    now = _t.time()
+    assert Budget(store, Settings(spend_cap_usd=0.30, spend_cap_per="run"), run_started=now).ok()      # this run: $0 so far
+    assert not Budget(store, Settings(spend_cap_usd=0.30, spend_cap_per="day"), run_started=now).ok()  # today: $0.40 already
+    assert Budget(store, Settings(spend_cap_usd=0, spend_cap_per="day"), run_started=now).ok()         # 0 = off

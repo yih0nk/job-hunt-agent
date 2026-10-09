@@ -112,6 +112,24 @@ export default function SettingsPage({ state, onChange, onRerunSetup }: {
             <p className="small muted">Estimated from token counts at list prices. Your Anthropic Console has the exact bill.</p>
           </>
         )}
+        <div className="row" style={{ alignItems: 'center' }}>
+          <b>Spend cap</b>
+          <span className="small muted">$</span>
+          <input type="number" min={0} step={0.5} style={{ width: 90 }} key={s.spend_cap_usd} defaultValue={s.spend_cap_usd || ''}
+            placeholder="none" disabled={busy}
+            onBlur={e => { const n = Number(e.target.value) || 0; if (n !== s.spend_cap_usd) void save({ spend_cap_usd: n }) }}
+            onKeyDown={e => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} />
+          <select style={{ width: 110 }} value={s.spend_cap_per} disabled={busy}
+            onChange={e => save({ spend_cap_per: e.target.value as 'run' | 'day' })}>
+            <option value="day">per day</option>
+            <option value="run">per run</option>
+          </select>
+          {s.spend_cap_usd > 0 && usage && s.spend_cap_per === 'day' && (
+            <span className="small muted">{money(usage.today)} of {money(s.spend_cap_usd)} used today</span>
+          )}
+        </div>
+        <p className="small muted">A run stops scoring and auto-drafting when it hits the cap; unscored roles just wait for the next run.
+          Leave empty for no cap. Things you trigger on one role (Score, Draft, Reach out) aren't blocked.</p>
       </div>
 
       <div className="card stack">

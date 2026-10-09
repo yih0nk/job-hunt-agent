@@ -127,12 +127,44 @@ def backfill_descriptions(store: Store) -> dict:
     return {"checked": len(todo), "fixed": fixed, "rescore": rescore}
 
 
-def score_new(store: Store, limit: int = 60) -> dict:
+class Budget:
+    """Stops a run's paid steps (scoring, auto-drafting) once the spend cap is reached.
+    Per-run counts spend since this run started; per-day counts since local midnight.
+    A cap of 0 means no cap. Roles left unscored simply wait for the next run."""
+
+    def __init__(self, store: Store, settings, run_started: float):
+        self.store, self.cap = store, float(settings.spend_cap_usd or 0)
+        self.per = settings.spend_cap_per
+        self.floor = run_started if self.per == "run" else _local_midnight()
+        self.hit = False
+
+    def ok(self) -> bool:
+        if self.cap <= 0:
+            return True
+        if not self.hit and self.store.spend_since(self.floor) >= self.cap:
+            self.hit = True
+        return not self.hit
+
+    @property
+    def label(self) -> str:
+        return f"${self.cap:.2f} per {self.per}"
+
+
+def _local_midnight(now: float | None = None) -> float:
+    now = time.time() if now is None else now
+    return time.mktime(time.localtime(now)[:3] + (0, 0, 0, 0, 0, -1))
+
+
+def score_new(store: Store, limit: int = 60, budget: Budget | None = None, workers: int = 4) -> dict:
     pending = store.jobs(["new"], limit=limit)
     progress.stage, progress.total, progress.done = "score", len(pending), 0
-    counts = {"scored": 0, "review": 0, "ineligible": 0, "failed": 0}
+    counts = {"scored": 0, "review": 0, "ineligible": 0, "failed": 0, "capped": 0}
 
     def work(j):
+        if budget and not budget.ok():
+            counts["capped"] += 1          # stays 'new'; scored on a later run
+            progress.done += 1
+            return
         progress.message = f"Scoring {j['company']} — {j['title']}"
         try:
             out = score_one(store, j["id"])
@@ -149,7 +181,7 @@ def score_new(store: Store, limit: int = 60) -> dict:
         finally:
             progress.done += 1
 
-    with ThreadPoolExecutor(max_workers=4) as pool:
+    with ThreadPoolExecutor(max_workers=workers) as pool:
         list(pool.map(work, pending))
     return counts
 
@@ -421,18 +453,22 @@ def run(store: Store, do_scan: bool = True, do_score: bool = True) -> None:
         return
     try:
         progress.running, progress.errors, progress.summary = True, [], {}
+        started = time.time()
         run_id = store.start_run()
+        budget = Budget(store, store.settings(), started)
         summary: dict = {}
         if do_scan:
             summary["scan"] = scan(store)
         if do_score:
-            summary["score"] = score_new(store)
+            summary["score"] = score_new(store, budget=budget)
             prefs = store.preferences()
             if prefs.auto_draft:
                 ready = [j for j in store.jobs(["review"]) if (j["score"] or 0) >= prefs.thresholds.auto_draft]
                 progress.stage, progress.total, progress.done = "draft", len(ready), 0
                 drafted = 0
                 for j in ready:
+                    if not budget.ok():
+                        break
                     progress.message = f"Drafting {j['company']} — {j['title']}"
                     try:
                         draft(store, j["id"])
@@ -441,6 +477,10 @@ def run(store: Store, do_scan: bool = True, do_score: bool = True) -> None:
                         progress.errors.append(f"Draft {j['company']}: {e}")
                     progress.done += 1
                 summary["drafted"] = drafted
+            if budget.hit:
+                summary["capped"] = budget.label
+                progress.errors.append(f"Stopped at your spend cap ({budget.label}). Unscored roles wait for the "
+                                       "next run; raise the cap under Settings → Spend to continue.")
         progress.summary = summary
         store.finish_run(run_id, summary)
     finally:

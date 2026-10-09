@@ -156,6 +156,8 @@ class Settings(BaseModel):
     draft_provider: Literal["claude", "local"] = "claude"
     local_url: str = "http://localhost:11434"
     local_model: str = ""                 # e.g. "qwen3:14b"
+    spend_cap_usd: float = 0.0            # 0 = no cap; a run stops its paid steps at the cap
+    spend_cap_per: Literal["run", "day"] = "day"
 
 
 # --- LLM outputs (structured) -------------------------------------------------------

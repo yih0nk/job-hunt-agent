@@ -40,8 +40,9 @@ export type SettingsView = {
   has_key: boolean; key_hint: string; key_in_keychain: boolean
   model: string; score_model: string; effort: string; auto_run_hours: number; logos: boolean
   score_provider: 'claude' | 'local'; draft_provider: 'claude' | 'local'; local_url: string; local_model: string
+  spend_cap_usd: number; spend_cap_per: 'run' | 'day'
 }
-export type SettingsPatch = Partial<Pick<SettingsView, 'model' | 'score_model' | 'effort' | 'auto_run_hours' | 'logos' | 'score_provider' | 'draft_provider' | 'local_url' | 'local_model'>> & { api_key?: string }
+export type SettingsPatch = Partial<Pick<SettingsView, 'model' | 'score_model' | 'effort' | 'auto_run_hours' | 'logos' | 'score_provider' | 'draft_provider' | 'local_url' | 'local_model' | 'spend_cap_usd' | 'spend_cap_per'>> & { api_key?: string }
 export type JobCost = { total: number; by_kind: Record<string, number> }
 export type Usage = {
   today: number; last_30_days: number; all_time: number

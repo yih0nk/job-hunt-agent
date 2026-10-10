@@ -574,14 +574,18 @@ class Roast(BaseModel):
     roast: str
 
 
-ROAST_SYSTEM = """You write one roast for a job seeker's shareable season recap card, spoken by the
-app's mascot (a briefcase with binoculars for eyes). Roast the job search itself, using the
-numbers you're given: the ratios, the gaps between steps, the spend. Dry, specific, the kind
-of line people screenshot.
-Rules: 1-2 sentences, at most 150 characters. Reference at least one actual number. Punch at
-the process (ATS black holes, ghosting, window-shopping, overthinking), never at the person's
-identity, school, looks, background, or worth. No profanity, no emoji, no hashtags. Return a
-different joke each time you're asked."""
+ROAST_SYSTEM = """You write one line for a job seeker's shareable season recap card, spoken by the
+app's mascot (a briefcase with binoculars for eyes). Read the numbers you're given and MATCH the
+tone to them:
+- Crushing it (offers, or several interviews): hype them up. Loud, proud, a little smug.
+- In motion but stalled (lots applied, no interviews; packages drafted, none sent): a shove.
+  "Lock in", "hit submit", "the jobs won't apply to themselves".
+- Barely started (few applied, low good-fit rate): a roast of the process. Dry, specific.
+Pick the one the numbers actually call for; it does NOT have to be a roast.
+Rules: 1-2 sentences, at most 150 characters. Reference at least one actual number. Aim at the
+process and the habits (ATS black holes, ghosting, window-shopping, overthinking, not applying),
+never at the person's identity, school, looks, background, or worth. No profanity, no emoji, no
+hashtags. Return a different line each time you're asked."""
 
 
 def roast(settings: Settings, stats: dict) -> str:

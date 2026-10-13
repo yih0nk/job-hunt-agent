@@ -252,7 +252,8 @@ def row_hash(row):
 # --- Tracker dedup: skip positions already in the applications tracker -------------
 ROLE_STOP = {"intern", "internship", "summer", "winter", "fall", "spring", "co", "op",
              "coop", "2025", "2026", "2027", "2028", "the", "a", "an", "and", "of", "for",
-             "software", "engineer", "engineering", "swe", "start", "undergraduate"}
+             "software", "engineer", "engineering", "swe", "start", "undergraduate",
+             "bs", "ms", "ba", "phd", "bachelor", "bachelors", "masters"}
 
 def _norm_company(c):
     c = re.sub(r"\(.*?\)", "", c)                 # drop parentheticals
@@ -298,10 +299,27 @@ def load_applied(tracker_path):
                 continue
             role = cells[ri]
             if "unspecified" in role.lower():
-                applied.append((cn, None))
+                applied.append((cn, _unspecified_role(role)))
             else:
                 applied.append((cn, _norm_role(role)))
     return applied
+
+UNKNOWN_ROLE_WORDS = {"intern", "internship", "program", "role", "position"}
+
+def _unspecified_role(role):
+    """Role tokens for a tracker cell that mentions "unspecified".
+
+    "Software Engineering Intern (req unspecified)" still names the role; only the req id
+    is missing, so it matches SWE-intern postings and nothing else (Google's six rows used
+    to block all 73 Google internships, incl. the 2027 FDE intern). "Intern – role
+    unspecified in confirmation" names nothing, so it returns None and blocks the company.
+    """
+    title = re.sub(r"\([^)]*unspecified[^)]*\)", " ", role, flags=re.I)
+    title = re.split(r"(?i)[–—-]?\s*\brole unspecified\b", title)[0]
+    words = {w for w in re.split(r"[^a-z]+", title.lower()) if w}
+    if not words - UNKNOWN_ROLE_WORDS:
+        return None
+    return _norm_role(title)
 
 def is_tracked(row, applied):
     cn, rt = _norm_company(row["company"]), _norm_role(row["role"])
